@@ -7,13 +7,14 @@
   return canvas;
 }
 
-export function paintMask(canvas, points, radius, erase = false, feather = 0) {
+export function paintMask(canvas, points, radius, erase = false, feather = 0, strength = 1) {
   const ctx = canvas.getContext("2d");
   ctx.save();
   ctx.globalCompositeOperation = erase ? "destination-out" : "source-over";
   for (const p of points) {
     const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius + feather * 20);
-    const a0 = erase ? 1 : 0.95;
+    const clampedStrength = Math.max(0, Math.min(1, strength));
+    const a0 = erase ? clampedStrength : 0.95;
     g.addColorStop(0, `rgba(255,255,255,${a0})`);
     g.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = g;

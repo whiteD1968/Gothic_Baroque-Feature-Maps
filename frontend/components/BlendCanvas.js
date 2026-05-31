@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { blendFeatures, extractFeatureChannels } from "../lib/featureBlendUtils";
 import { createMaskCanvas, invertMask, clearMask, paintMask, polygonMask, rectMask } from "../lib/maskUtils";
-import { blendImageData, imageDataFromImage, maskFromAlpha } from "../lib/regionBlendUtils";
+import { blendImageData, imageDataFromImageRegion, maskFromAlpha } from "../lib/regionBlendUtils";
 import { applyAbstraction } from "../lib/hybridAbstractionUtils";
 
 const W = 880;
@@ -71,6 +71,25 @@ function transformRegionImageData(regionData, transform) {
   return ctx.getImageData(0, 0, out.width, out.height);
 }
 
+function maskCount(maskData) {
+  let n = 0;
+  for (let i = 0; i < maskData.data.length; i += 4) if (maskData.data[i] > 0) n += 1;
+  return n;
+}
+
+function applyMaskedPatch(base, patch, mask) {
+  const out = cloneImageData(base);
+  for (let i = 0; i < out.data.length; i += 4) {
+    const m = mask.data[i] / 255;
+    if (m <= 0) continue;
+    out.data[i] = patch.data[i];
+    out.data[i + 1] = patch.data[i + 1];
+    out.data[i + 2] = patch.data[i + 2];
+    out.data[i + 3] = 255;
+  }
+  return out;
+}
+
 function mergeMasks(maskA, maskB) {
   const out = new ImageData(maskA.width, maskA.height);
   for (let i = 0; i < out.data.length; i += 4) {
@@ -83,12 +102,24 @@ function mergeMasks(maskA, maskB) {
   return out;
 }
 
+function hexToRgb(hex) {
+  const cleaned = String(hex || "").replace("#", "");
+  if (cleaned.length !== 6) return [255, 255, 255];
+  const v = parseInt(cleaned, 16);
+  if (Number.isNaN(v)) return [255, 255, 255];
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
 export default function BlendCanvas({
   sourceA,
   sourceB,
+  sourceCropA,
+  sourceCropB,
   selectionTool,
   selectionTarget,
   feather,
+  brushSize,
+  eraseTransparency,
   blendMode,
   opacity,
   roleAssignment,
@@ -100,12 +131,23 @@ export default function BlendCanvas({
   invertTick,
   polygonUndoTick,
   polygonCloseTick,
+  applyTick,
+  deselectTick,
+  deleteTick,
+  abstractionMode,
+  undoTick,
+  redoTick,
+  resetTick,
 }) {
   const canvasRef = useRef(null);
   const maskARef = useRef(null);
   const maskBRef = useRef(null);
   const imgARef = useRef(null);
   const imgBRef = useRef(null);
+  const workingBaseRef = useRef(null);
+  const lastPreviewRef = useRef(null);
+  const historyRef = useRef([]);
+  const redoRef = useRef([]);
 
   const [isDown, setIsDown] = useState(false);
   const [pointsA, setPointsA] = useState([]);
@@ -113,13 +155,14 @@ export default function BlendCanvas({
   const [start, setStart] = useState(null);
   const [dragNodeIdx, setDragNodeIdx] = useState(-1);
   const [hoverNodeIdx, setHoverNodeIdx] = useState(-1);
+  const [cursorUi, setCursorUi] = useState({ x: 16, y: 16, visible: false });
 
   const points = selectionTarget === "A" ? pointsA : pointsB;
   const setPoints = selectionTarget === "A" ? setPointsA : setPointsB;
   const activeMaskRef = selectionTarget === "A" ? maskARef : maskBRef;
 
   const applyRegionFx = (regionData, fx) => {
-    const safeFx = fx || { blur: 0, pixelate: 1, glitch: 0, smudge: 0, gloom: 0, fragmentJitter: 0 };
+    const safeFx = fx || { blur: 0, pixelate: 1, glitch: 0, smudge: 0, gloom: 0, fragmentJitter: 0, colorMode: "preserve", colorShift: 0 };
     const canvas = document.createElement("canvas");
     canvas.width = regionData.width;
     canvas.height = regionData.height;
@@ -134,7 +177,6 @@ export default function BlendCanvas({
       tctx.filter = `blur(${safeFx.blur}px)`;
       tctx.drawImage(canvas, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.filter = "none";
       ctx.drawImage(temp, 0, 0);
     }
 
@@ -156,8 +198,7 @@ export default function BlendCanvas({
       const temp = document.createElement("canvas");
       temp.width = canvas.width;
       temp.height = canvas.height;
-      const tctx = temp.getContext("2d");
-      tctx.drawImage(canvas, 0, 0);
+      temp.getContext("2d").drawImage(canvas, 0, 0);
       const bands = Math.floor(12 + safeFx.glitch * 45);
       for (let i = 0; i < bands; i += 1) {
         const y = Math.floor(Math.random() * canvas.height);
@@ -165,11 +206,6 @@ export default function BlendCanvas({
         const shift = Math.floor((Math.random() - 0.5) * safeFx.glitch * 90);
         ctx.drawImage(temp, 0, y, canvas.width, h, shift, y, canvas.width, h);
       }
-      ctx.globalCompositeOperation = "screen";
-      ctx.globalAlpha = safeFx.glitch * 0.45;
-      ctx.drawImage(temp, 2, 0);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = "source-over";
     }
 
     if (safeFx.smudge > 0.01) {
@@ -199,19 +235,48 @@ export default function BlendCanvas({
       }
     }
 
-    if (safeFx.gloom > 0.01) {
-      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const g = (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
-        const d = 1 - safeFx.gloom * 0.7;
-        img.data[i] = Math.max(0, Math.min(255, g * d));
-        img.data[i + 1] = Math.max(0, Math.min(255, g * d));
-        img.data[i + 2] = Math.max(0, Math.min(255, g * d + 8));
+    const out = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    if (safeFx.colorMode === "shift" && safeFx.colorShift > 0.01) {
+      for (let i = 0; i < out.data.length; i += 4) {
+        out.data[i] = Math.max(0, Math.min(255, out.data[i] + 70 * safeFx.colorShift));
+        out.data[i + 1] = Math.max(0, Math.min(255, out.data[i + 1] - 20 * safeFx.colorShift));
+        out.data[i + 2] = Math.max(0, Math.min(255, out.data[i + 2] + 55 * safeFx.colorShift));
       }
-      ctx.putImageData(img, 0, 0);
     }
 
-    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (safeFx.colorMode === "gradient" && safeFx.colorShift > 0.01) {
+      const stops = (safeFx.gradientStops || ["#ff8a00", "#ffd400", "#7ed321", "#35c759", "#0a84ff"]).map(hexToRgb);
+      const lower = Math.max(0, Math.min(0.99, Number.isFinite(safeFx.gradientLower) ? safeFx.gradientLower : 0.1));
+      const upper = Math.max(lower + 0.01, Math.min(1, Number.isFinite(safeFx.gradientUpper) ? safeFx.gradientUpper : 0.9));
+      for (let i = 0; i < out.data.length; i += 4) {
+        const g = (out.data[i] + out.data[i + 1] + out.data[i + 2]) / 3 / 255;
+        const tNorm = Math.max(0, Math.min(1, (g - lower) / (upper - lower)));
+        const p = tNorm * (stops.length - 1);
+        const i0 = Math.floor(p);
+        const i1 = Math.min(stops.length - 1, i0 + 1);
+        const t = p - i0;
+        const r = stops[i0][0] * (1 - t) + stops[i1][0] * t;
+        const gg = stops[i0][1] * (1 - t) + stops[i1][1] * t;
+        const b = stops[i0][2] * (1 - t) + stops[i1][2] * t;
+        out.data[i] = Math.round(out.data[i] * (1 - safeFx.colorShift) + r * safeFx.colorShift);
+        out.data[i + 1] = Math.round(out.data[i + 1] * (1 - safeFx.colorShift) + gg * safeFx.colorShift);
+        out.data[i + 2] = Math.round(out.data[i + 2] * (1 - safeFx.colorShift) + b * safeFx.colorShift);
+      }
+    }
+
+    if (safeFx.gloom > 0.01) {
+      for (let i = 0; i < out.data.length; i += 4) {
+        const lum = (out.data[i] + out.data[i + 1] + out.data[i + 2]) / 3;
+        const d = 1 - safeFx.gloom * 0.72;
+        const contrast = 1 + safeFx.gloom * 0.45;
+        out.data[i] = Math.max(0, Math.min(255, ((out.data[i] - lum) * contrast + lum) * d));
+        out.data[i + 1] = Math.max(0, Math.min(255, ((out.data[i + 1] - lum) * contrast + lum) * d));
+        out.data[i + 2] = Math.max(0, Math.min(255, ((out.data[i + 2] - lum) * contrast + lum) * d));
+      }
+    }
+
+    return out;
   };
 
   useEffect(() => {
@@ -239,7 +304,6 @@ export default function BlendCanvas({
     for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
     if (pts.length > 2) ctx.lineTo(pts[0].x, pts[0].y);
     ctx.stroke();
-
     for (let i = 0; i < pts.length; i += 1) {
       const p = pts[i];
       ctx.fillStyle = i === hoverNodeIdx && selectionTarget === (color.includes("255,120") ? "B" : "A") ? "#fff" : color;
@@ -254,14 +318,19 @@ export default function BlendCanvas({
 
   const rebuild = () => {
     if (!canBlend || !canvasRef.current || !maskARef.current || !maskBRef.current || !imgARef.current || !imgBRef.current) return;
-    const baseA = imageDataFromImage(imgARef.current, W, H);
-    const baseB = imageDataFromImage(imgBRef.current, W, H);
 
+    const sourceAImg = imageDataFromImageRegion(imgARef.current, sourceCropA, W, H);
+    const sourceBImg = imageDataFromImageRegion(imgBRef.current, sourceCropB, W, H);
+    if (!workingBaseRef.current) workingBaseRef.current = cloneImageData(sourceAImg);
+
+    const base = cloneImageData(workingBaseRef.current);
     const maskA = maskFromAlpha(maskARef.current);
     const maskB = maskFromAlpha(maskBRef.current);
+    const countA = maskCount(maskA);
+    const countB = maskCount(maskB);
 
-    let regionA = applyMaskToImageData(baseA, maskA);
-    let regionB = applyMaskToImageData(baseB, maskB);
+    let regionA = applyMaskToImageData(base, maskA);
+    let regionB = applyMaskToImageData(sourceBImg, countB > 0 ? maskB : maskA);
 
     if (selectionTarget === "A") regionA = transformRegionImageData(regionA, transform);
     if (selectionTarget === "B") regionB = transformRegionImageData(regionB, transform);
@@ -269,23 +338,33 @@ export default function BlendCanvas({
     regionA = applyRegionFx(regionA, regionFx);
     regionB = applyRegionFx(regionB, regionFx);
 
-    const isFeatureMode = ["edge-transfer", "density-transfer", "contour fusion", "pattern crossbreed", "field merge", "palette transfer"].includes(blendMode);
-    const blendedRegion = isFeatureMode
-      ? blendFeatures(extractFeatureChannels(regionA), extractFeatureChannels(regionB), roleAssignment, featureWeights)
-      : blendImageData(regionA, regionB, mergeMasks(maskA, maskB), blendMode, opacity);
+    let patch = regionA;
+    let patchMask = maskA;
+    const bInfluence = regionFx?.sourceBInfluence ?? 0.55;
+    const useSourceBPatch = Boolean(regionFx?.useSourceBPatch);
 
-    const finalOut = cloneImageData(baseA);
-    const unionMask = mergeMasks(maskA, maskB);
-    for (let i = 0; i < finalOut.data.length; i += 4) {
-      if (unionMask.data[i] > 0) {
-        finalOut.data[i] = blendedRegion.data[i];
-        finalOut.data[i + 1] = blendedRegion.data[i + 1];
-        finalOut.data[i + 2] = blendedRegion.data[i + 2];
-        finalOut.data[i + 3] = 255;
-      }
+    if (countA > 0 && countB > 0) {
+      const isFeatureMode = ["edge-transfer", "density-transfer", "contour fusion", "pattern crossbreed", "field merge", "palette transfer", "mj blend"].includes(blendMode);
+      patch = isFeatureMode
+        ? blendFeatures(extractFeatureChannels(regionA), extractFeatureChannels(regionB), roleAssignment, featureWeights)
+        : blendImageData(regionA, regionB, mergeMasks(maskA, maskB), blendMode, opacity);
+      patchMask = mergeMasks(maskA, maskB);
+    } else if (countA > 0) {
+      patch = useSourceBPatch
+        ? blendImageData(regionA, regionB, maskA, blendMode, opacity * bInfluence)
+        : regionA;
+      patchMask = maskA;
+    } else if (countB > 0) {
+      patch = useSourceBPatch
+        ? blendImageData(regionA, regionB, maskB, blendMode, opacity * bInfluence)
+        : regionB;
+      patchMask = maskB;
     }
 
-    const abstracted = applyAbstraction(finalOut, "Projection Texture");
+    const preview = applyMaskedPatch(base, patch, patchMask);
+    lastPreviewRef.current = preview;
+
+    const abstracted = regionFx?.enableAbstractionPreview ? applyAbstraction(preview, abstractionMode) : preview;
     const ctx = canvasRef.current.getContext("2d");
     ctx.putImageData(abstracted, 0, 0);
     ctx.globalAlpha = 0.24;
@@ -296,7 +375,20 @@ export default function BlendCanvas({
     drawPolygonOverlay(ctx, pointsA, "rgba(10,132,255,0.95)");
     drawPolygonOverlay(ctx, pointsB, "rgba(255,120,20,0.95)");
 
-    onHybridReady?.({ imageData: finalOut, preview: canvasRef.current.toDataURL("image/png", 0.95) });
+    onHybridReady?.({ imageData: preview, preview: canvasRef.current.toDataURL("image/png", 0.95) });
+  };
+
+  const pushHistory = () => {
+    if (!workingBaseRef.current) return;
+    historyRef.current = [...historyRef.current.slice(-19), cloneImageData(workingBaseRef.current)];
+    redoRef.current = [];
+  };
+
+  const clearActiveSelection = () => {
+    if (!activeMaskRef.current) return;
+    clearMask(activeMaskRef.current);
+    if (selectionTarget === "A") setPointsA([]);
+    else setPointsB([]);
   };
 
   useEffect(() => {
@@ -306,20 +398,24 @@ export default function BlendCanvas({
       if (cancelled) return;
       imgARef.current = a;
       imgBRef.current = b;
+      workingBaseRef.current = imageDataFromImageRegion(a, sourceCropA, W, H);
+      historyRef.current = [];
+      redoRef.current = [];
+      clearMask(maskARef.current);
+      clearMask(maskBRef.current);
+      setPointsA([]);
+      setPointsB([]);
       rebuild();
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [sourceA?.url, sourceB?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceA?.url, sourceB?.url, sourceCropA?.x, sourceCropA?.y, sourceCropA?.w, sourceCropA?.h, sourceCropB?.x, sourceCropB?.y, sourceCropB?.w, sourceCropB?.h]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     rebuild();
-  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget, regionFx]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blendMode, opacity, feather, brushSize, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget, regionFx, abstractionMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep polygon masks in sync with node edits so dragging/inserting points updates the actual selected region.
   useEffect(() => {
-    if (!maskARef.current || !maskBRef.current) return;
-    if (selectionTool !== "polygon") return;
-
+    if (!maskARef.current || !maskBRef.current || selectionTool !== "polygon") return;
     if (selectionTarget === "A") {
       clearMask(maskARef.current);
       if (pointsA.length > 2) polygonMask(maskARef.current, pointsA);
@@ -330,19 +426,8 @@ export default function BlendCanvas({
     rebuild();
   }, [pointsA, pointsB, selectionTool, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!activeMaskRef.current) return;
-    clearMask(activeMaskRef.current);
-    if (selectionTarget === "A") setPointsA([]);
-    else setPointsB([]);
-    rebuild();
-  }, [clearTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!activeMaskRef.current) return;
-    invertMask(activeMaskRef.current);
-    rebuild();
-  }, [invertTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { clearActiveSelection(); rebuild(); }, [clearTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeMaskRef.current) { invertMask(activeMaskRef.current); rebuild(); } }, [invertTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!points.length) return;
@@ -355,11 +440,84 @@ export default function BlendCanvas({
     rebuild();
   }, [polygonUndoTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { if (activeMaskRef.current && points.length >= 3) { polygonMask(activeMaskRef.current, points); rebuild(); } }, [polygonCloseTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
-    if (!activeMaskRef.current || points.length < 3) return;
-    polygonMask(activeMaskRef.current, points);
+    if (!lastPreviewRef.current) return;
+    pushHistory();
+    workingBaseRef.current = cloneImageData(lastPreviewRef.current);
+    clearActiveSelection();
+    setStart(null);
+    setDragNodeIdx(-1);
     rebuild();
-  }, [polygonCloseTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [applyTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    clearActiveSelection();
+    setStart(null);
+    setDragNodeIdx(-1);
+    rebuild();
+  }, [deselectTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!workingBaseRef.current || !maskARef.current || !maskBRef.current) return;
+    pushHistory();
+    const base = cloneImageData(workingBaseRef.current);
+    const sourceBImg = imgBRef.current ? imageDataFromImageRegion(imgBRef.current, sourceCropB, W, H) : base;
+    const sourceAImg = imgARef.current ? imageDataFromImageRegion(imgARef.current, sourceCropA, W, H) : base;
+    const maskToUse = selectionTarget === "A" ? maskARef.current : maskBRef.current;
+    const m = maskFromAlpha(maskToUse);
+    const fillFrom = selectionTarget === "A" ? sourceBImg : sourceAImg;
+    for (let i = 0; i < base.data.length; i += 4) {
+      const w = m.data[i] / 255;
+      if (w <= 0) continue;
+      base.data[i] = fillFrom.data[i];
+      base.data[i + 1] = fillFrom.data[i + 1];
+      base.data[i + 2] = fillFrom.data[i + 2];
+      base.data[i + 3] = 255;
+    }
+    workingBaseRef.current = base;
+    clearActiveSelection();
+    rebuild();
+  }, [deleteTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const prev = historyRef.current[historyRef.current.length - 1];
+    if (!prev || !workingBaseRef.current) return;
+    redoRef.current = [...redoRef.current.slice(-19), cloneImageData(workingBaseRef.current)];
+    workingBaseRef.current = cloneImageData(prev);
+    historyRef.current = historyRef.current.slice(0, -1);
+    clearActiveSelection();
+    setStart(null);
+    setDragNodeIdx(-1);
+    rebuild();
+  }, [undoTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const next = redoRef.current[redoRef.current.length - 1];
+    if (!next || !workingBaseRef.current) return;
+    historyRef.current = [...historyRef.current.slice(-19), cloneImageData(workingBaseRef.current)];
+    workingBaseRef.current = cloneImageData(next);
+    redoRef.current = redoRef.current.slice(0, -1);
+    clearActiveSelection();
+    setStart(null);
+    setDragNodeIdx(-1);
+    rebuild();
+  }, [redoTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!imgARef.current) return;
+    workingBaseRef.current = imageDataFromImageRegion(imgARef.current, sourceCropA, W, H);
+    historyRef.current = [];
+    redoRef.current = [];
+    clearMask(maskARef.current);
+    clearMask(maskBRef.current);
+    setPointsA([]);
+    setPointsB([]);
+    setStart(null);
+    setDragNodeIdx(-1);
+    rebuild();
+  }, [resetTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -405,11 +563,7 @@ export default function BlendCanvas({
     if (!activeMaskRef.current) return;
     const p = toPoint(event);
     const nodeIdx = hitNode(p);
-    if (selectionTool === "polygon" && nodeIdx !== -1) {
-      setDragNodeIdx(nodeIdx);
-      setIsDown(true);
-      return;
-    }
+    if (selectionTool === "polygon" && nodeIdx !== -1) { setDragNodeIdx(nodeIdx); setIsDown(true); return; }
 
     if (selectionTool === "polygon" && points.length > 1) {
       const seg = hitSegment(p);
@@ -422,18 +576,9 @@ export default function BlendCanvas({
 
     setIsDown(true);
     setStart(p);
-    if (selectionTool === "polygon") {
-      setPoints((prev) => {
-        const next = [...prev, p];
-        clearMask(activeMaskRef.current);
-        if (next.length > 2) polygonMask(activeMaskRef.current, next);
-        return next;
-      });
-      rebuild();
-      return;
-    }
-    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], 18, false, feather);
-    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], 18, true, feather);
+    if (selectionTool === "polygon") { setPoints((prev) => [...prev, p]); return; }
+    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], brushSize / 2, false, feather);
+    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], brushSize / 2, true, feather, eraseTransparency / 100);
     if (selectionTool === "lasso") setPoints([p]);
     rebuild();
   };
@@ -441,22 +586,21 @@ export default function BlendCanvas({
   const onMove = (event) => {
     if (!activeMaskRef.current) return;
     const p = toPoint(event);
+    setCursorUi({
+      x: event.nativeEvent.offsetX + 16,
+      y: event.nativeEvent.offsetY - 16,
+      visible: true,
+    });
     setHoverNodeIdx(hitNode(p));
     if (!isDown) return;
 
     if (selectionTool === "polygon" && dragNodeIdx !== -1) {
-      setPoints((prev) => {
-        const next = prev.map((pt, idx) => (idx === dragNodeIdx ? p : pt));
-        clearMask(activeMaskRef.current);
-        if (next.length > 2) polygonMask(activeMaskRef.current, next);
-        return next;
-      });
-      rebuild();
+      setPoints((prev) => prev.map((pt, idx) => (idx === dragNodeIdx ? p : pt)));
       return;
     }
 
-    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], 18, false, feather);
-    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], 18, true, feather);
+    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], brushSize / 2, false, feather);
+    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], brushSize / 2, true, feather, eraseTransparency / 100);
     if (selectionTool === "lasso") {
       setPoints((prev) => {
         const next = [...prev, p];
@@ -480,6 +624,12 @@ export default function BlendCanvas({
 
   return (
     <div className="blend-canvas-wrap">
+      <div
+        className={`blend-target-badge ${cursorUi.visible ? "visible" : ""} ${selectionTarget === "A" ? "target-a" : "target-b"}`}
+        style={{ left: cursorUi.x, top: cursorUi.y }}
+      >
+        {selectionTarget === "A" ? "Editing A" : "Editing B"}
+      </div>
       <canvas
         ref={canvasRef}
         width={W}
@@ -487,10 +637,15 @@ export default function BlendCanvas({
         onMouseDown={onDown}
         onMouseMove={onMove}
         onMouseUp={onUp}
-        onMouseLeave={() => { setIsDown(false); setDragNodeIdx(-1); }}
+        onMouseEnter={() => setCursorUi((prev) => ({ ...prev, visible: true }))}
+        onMouseLeave={() => {
+          setIsDown(false);
+          setDragNodeIdx(-1);
+          setCursorUi((prev) => ({ ...prev, visible: false }));
+        }}
       />
       <div className="card-actions">
-        <button type="button" onClick={() => { if (activeMaskRef.current) { clearMask(activeMaskRef.current); setPoints([]); rebuild(); } }}>Clear active mask</button>
+        <button type="button" onClick={() => { clearActiveSelection(); rebuild(); }}>Clear active mask</button>
         <button type="button" onClick={() => { if (activeMaskRef.current) { invertMask(activeMaskRef.current); rebuild(); } }}>Invert active mask</button>
       </div>
     </div>

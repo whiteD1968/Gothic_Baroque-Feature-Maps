@@ -1,36 +1,44 @@
 # Gothic_Baroque Feature Mapper
 
-Gothic_Baroque Feature Mapper is a lightweight research tool that treats historical architecture as a database of latent spatial, ornamental, and structural intelligence. Instead of reproducing Gothic or Baroque styles directly, it extracts computational features from precedent images and converts them into abstract analytical maps for AI-assisted design workflows across MidJourney, ComfyUI, Stable Diffusion, and related tools.
+Gothic_Baroque Feature Mapper is a visual research tool for extracting and translating historical architectural features into authored, AI-ready references for MidJourney, ComfyUI, Stable Diffusion, and architectural design workflows.
 
-The goal is not to use Gothic and Baroque architecture as styles to imitate, but to extract their geometric behaviors and translate them into new material and fabrication logics.
+The project now operates as a full **Feature Extraction + Graphic Translation Lab** with archive, translation, projection, and export pipelines, plus a region-based **Blend Lab** for crossbreeding Source A/B image logic.
 
-## Features
+## Main Workflow
 
-- Upload JPG, PNG, and WEBP files (single or batch)
-- Tag each image as Gothic, Baroque, Mixed, or Custom
-- Thumbnail gallery with per-image tag control
-- Adjustable extraction controls for edge thresholds and density kernel
-- One-click preset profiles:
-  - Gothic-sensitive
-  - Baroque-dense
-  - Balanced mixed
-  - Custom
-- Generated maps per image:
-  - Original
-  - Edge Map (Canny)
-  - Shadow / Depth Map (local variance)
-  - Flow Map (Sobel directional gradients)
-  - Node Map (intersection/corner intensity)
-  - Density Map (ornament/contour concentration)
-  - Symmetry / Asymmetry Map (mirrored-half behavior contrast)
-  - Deformation Map (where historical geometric logic mutates)
-  - Composite Map (layered abstraction)
-- Side-by-side results panel with map downloads
-- Interactive Three.js spatial viewer for generated map sets
-- JPG or PNG export for each map
-- Batch ZIP export for all generated maps in selected format
-- Copyable trait description text for prompting/reference
-- Basic mirrored-half symmetry analysis included in trait metrics
+Historical source image -> extracted feature maps -> graphic translation -> abstract AI reference -> architectural projection artifact
+
+## Core Tabs
+
+- `Archive`: upload, tag, organize, and preview source images.
+- `Extraction`: generate edge, shadow/depth, flow, node, density, symmetry/asymmetry, and composite maps.
+- `Translation`: authored abstract outputs (taxonomy boards, hybrid linework plates, mutation sheets, field condition maps, MidJourney boards).
+- `Blend Lab`: region-based Source A/B crossbreeding, mask tools, blend presets, live mutation grid, and Grasshopper-ready export.
+- `Projection`: map translated outputs onto placeholder geometry (tile, vault patch, stereotomic block, column fragment, minimal surface patch).
+- `Export`: map/image export, metadata, prompt summaries, and packaged outputs.
+
+## Recent Feature Additions
+
+- Premium workspace structure and editorial UI treatment.
+- Presentation modes (`Grid`, `Gallery`, `Atlas`, `Board`, `Detail`).
+- Graphic style and translation presets (including Gothic/Baroque logic profiles).
+- Blend Lab module with:
+  - Source A / Source B upload and tagging
+  - region tools (`rectangular`, `lasso`, `polygon`, `brush mask`, `erase mask`)
+  - adjustable brush diameter
+  - erase transparency slider (`0-100`)
+  - apply/deselect flow for iterative edits
+  - region delete/fill (`Delete A -> Fill from B`, `Delete B -> Fill from A`)
+  - explicit Source B patch toggle
+  - on-canvas A/B target badge
+  - undo/redo (`Ctrl+Z`, `Ctrl+Shift+Z`, `Ctrl+Y`) + reset tools
+- Gradient color mode enhancements:
+  - gradient ramp preview
+  - lower/upper limit controls
+  - editable color stops
+- Source-region selection on original previews:
+  - drag region rectangle on Source A and Source B
+  - Blend Canvas uses selected source regions, not only full-image cover fit.
 
 ## Project Structure
 
@@ -44,7 +52,7 @@ The goal is not to use Gothic and Baroque architecture as styles to imitate, but
 /public/outputs
 ```
 
-## Getting Started
+## Local Development
 
 ### 1) Backend (FastAPI)
 
@@ -62,8 +70,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```bash
 cd frontend
 npm install
-# optional if backend is not on localhost:8000
-# set NEXT_PUBLIC_API_URL
 npm run dev
 ```
 
@@ -71,28 +77,38 @@ Open `http://localhost:3005`.
 
 ### 3) Root-level Convenience Commands
 
-From the project root:
-
 ```bash
 npm run dev:backend
 npm run dev
 ```
 
-For external browser usage, use:
+## Deployment (GitHub Pages)
 
-- `http://127.0.0.1:3005` (frontend)
-- `http://127.0.0.1:8000/health` (backend health)
+Live demo:
 
-## Controls
+- https://whited1968.github.io/Gothic_Baroque-Feature-Maps/
 
-- `Edge Threshold Low`: Lower Canny boundary for edge sensitivity
-- `Edge Threshold High`: Upper Canny boundary for edge confirmation
-- `Density Kernel`: Neighborhood size used to estimate ornament concentration
+### Build locally for GitHub Pages
 
-## Workflow
+From repo root (PowerShell):
 
-Historical image database -> feature extraction -> abstract maps -> AI image references -> new architectural language
+```powershell
+$env:GITHUB_PAGES="true"
+$env:GH_PAGES_BASE_PATH="/Gothic_Baroque-Feature-Maps"
+npm --prefix frontend run build
+```
 
-## Research Framing
+The static export is generated in:
 
-This tool supports research into digital spolia, computational craft, and the translation of historical architectural language into new material and fabrication workflows by extracting latent features such as ribs, arches, tracery, curvature, node intersections, and relief depth into reusable computational maps.
+- `frontend/out`
+
+### Publish to `gh-pages` branch (safe workflow)
+
+Use a separate worktree so local `main` stays untouched:
+
+1. Build with the environment variables above.
+2. Create/use a `gh-pages` worktree checkout.
+3. Replace only worktree contents with `frontend/out`.
+4. Commit and push `gh-pages`.
+
+This repo is configured so GitHub Pages can serve from the `gh-pages` branch root.

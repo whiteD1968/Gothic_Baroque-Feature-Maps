@@ -8,6 +8,58 @@ import MutationGrid from "./MutationGrid";
 import GrasshopperExportPanel from "./GrasshopperExportPanel";
 import BlendLineageGraph from "./BlendLineageGraph";
 
+function SourceRegionPicker({ source, crop, setCrop, label }) {
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const activeCrop = crop || { x: 0, y: 0, w: 1, h: 1 };
+
+  const onPointerDown = (event) => {
+    if (!source?.url) return;
+    const host = event.currentTarget;
+    const rect = host.getBoundingClientRect();
+    const startX = clamp01((event.clientX - rect.left) / rect.width);
+    const startY = clamp01((event.clientY - rect.top) / rect.height);
+
+    const onMove = (moveEvent) => {
+      const cx = clamp01((moveEvent.clientX - rect.left) / rect.width);
+      const cy = clamp01((moveEvent.clientY - rect.top) / rect.height);
+      const x = Math.min(startX, cx);
+      const y = Math.min(startY, cy);
+      const w = Math.max(0.02, Math.abs(cx - startX));
+      const h = Math.max(0.02, Math.abs(cy - startY));
+      setCrop({ x, y, w, h });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  return source?.url ? (
+    <div className="source-region-block">
+      <small className="muted">{label}</small>
+      <div className="source-region-picker" onPointerDown={onPointerDown} role="button" tabIndex={0}>
+        <img src={source.url} alt={label} className="source-preview" />
+        <div
+          className="source-region-rect"
+          style={{
+            left: `${activeCrop.x * 100}%`,
+            top: `${activeCrop.y * 100}%`,
+            width: `${activeCrop.w * 100}%`,
+            height: `${activeCrop.h * 100}%`,
+          }}
+        />
+      </div>
+      <div className="card-actions">
+        <button type="button" onClick={() => setCrop({ x: 0, y: 0, w: 1, h: 1 })}>Reset Source Region</button>
+      </div>
+    </div>
+  ) : <p className="muted">Upload source image</p>;
+}
+
 export default function BlendLabTab(props) {
   const {
     sourceA,
@@ -18,12 +70,20 @@ export default function BlendLabTab(props) {
     tagB,
     setTagA,
     setTagB,
+    sourceCropA,
+    sourceCropB,
+    setSourceCropA,
+    setSourceCropB,
     selectionTool,
     setSelectionTool,
     selectionTarget,
     setSelectionTarget,
     feather,
     setFeather,
+    brushSize,
+    setBrushSize,
+    eraseTransparency,
+    setEraseTransparency,
     blendMode,
     setBlendMode,
     opacity,
@@ -48,6 +108,12 @@ export default function BlendLabTab(props) {
     onInvertSelection,
     onUndoPolygonNode,
     onClosePolygon,
+    onApplyRegion,
+    onDeselectRegion,
+    onDeleteRegion,
+    onUndoEdit,
+    onRedoEdit,
+    onResetTools,
     transform,
     setTransform,
     lineage,
@@ -58,12 +124,19 @@ export default function BlendLabTab(props) {
     polygonCloseTick,
     contourSimplify,
     setContourSimplify,
+    applyTick,
+    deselectTick,
+    deleteTick,
+    undoTick,
+    redoTick,
+    resetTick,
   } = props;
 
-  const upload = (setter) => (e) => {
+  const upload = (setter, resetCrop) => (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setter({ file, url: URL.createObjectURL(file), name: file.name });
+    if (resetCrop) resetCrop({ x: 0, y: 0, w: 1, h: 1 });
   };
 
   return (
@@ -76,9 +149,9 @@ export default function BlendLabTab(props) {
       <section className="glass-panel blend-lab-workspace">
         <div className="blend-col source-col">
           <h4>Source A</h4>
-          <input type="file" accept="image/*" onChange={upload(setSourceA)} />
+          <input type="file" accept="image/*" onChange={upload(setSourceA, setSourceCropA)} />
           <select value={tagA} onChange={(e) => setTagA(e.target.value)}>{TAGS.map((t) => <option key={t}>{t}</option>)}</select>
-          {sourceA?.url ? <img src={sourceA.url} alt="Source A" className="source-preview" /> : <p className="muted">Upload source image A</p>}
+          <SourceRegionPicker source={sourceA} crop={sourceCropA} setCrop={setSourceCropA} label="Source A Region" />
         </div>
 
         <div className="blend-col canvas-col">
@@ -91,10 +164,20 @@ export default function BlendLabTab(props) {
               setSelectionTarget={setSelectionTarget}
               feather={feather}
               setFeather={setFeather}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              eraseTransparency={eraseTransparency}
+              setEraseTransparency={setEraseTransparency}
               onClearSelection={onClearSelection}
               onInvertSelection={onInvertSelection}
               onUndoPolygonNode={onUndoPolygonNode}
               onClosePolygon={onClosePolygon}
+              onApplyRegion={onApplyRegion}
+              onDeselectRegion={onDeselectRegion}
+              onDeleteRegion={onDeleteRegion}
+              onUndoEdit={onUndoEdit}
+              onRedoEdit={onRedoEdit}
+              onResetTools={onResetTools}
               transform={transform}
               setTransform={setTransform}
             />
@@ -114,9 +197,13 @@ export default function BlendLabTab(props) {
           <BlendCanvas
             sourceA={sourceA}
             sourceB={sourceB}
+            sourceCropA={sourceCropA}
+            sourceCropB={sourceCropB}
             selectionTool={selectionTool}
             selectionTarget={selectionTarget}
             feather={feather}
+            brushSize={brushSize}
+            eraseTransparency={eraseTransparency}
             blendMode={blendMode}
             opacity={opacity}
             roleAssignment={roleAssignment}
@@ -128,15 +215,22 @@ export default function BlendLabTab(props) {
             invertTick={invertTick}
             polygonUndoTick={polygonUndoTick}
             polygonCloseTick={polygonCloseTick}
+            applyTick={applyTick}
+            deselectTick={deselectTick}
+            deleteTick={deleteTick}
+            abstractionMode={abstractionMode}
+            undoTick={undoTick}
+            redoTick={redoTick}
+            resetTick={resetTick}
           />
           {hybridPreview ? <HybridPreview imageUrl={hybridPreview} title="Hybrid Output" /> : null}
         </div>
 
         <div className="blend-col source-col">
           <h4>Source B</h4>
-          <input type="file" accept="image/*" onChange={upload(setSourceB)} />
+          <input type="file" accept="image/*" onChange={upload(setSourceB, setSourceCropB)} />
           <select value={tagB} onChange={(e) => setTagB(e.target.value)}>{TAGS.map((t) => <option key={t}>{t}</option>)}</select>
-          {sourceB?.url ? <img src={sourceB.url} alt="Source B" className="source-preview" /> : <p className="muted">Upload source image B</p>}
+          <SourceRegionPicker source={sourceB} crop={sourceCropB} setCrop={setSourceCropB} label="Source B Region" />
         </div>
       </section>
 

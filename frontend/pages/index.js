@@ -71,11 +71,15 @@ export default function Home() {
   });
   const [sourceA, setSourceA] = useState(null);
   const [sourceB, setSourceB] = useState(null);
+  const [sourceCropA, setSourceCropA] = useState({ x: 0, y: 0, w: 1, h: 1 });
+  const [sourceCropB, setSourceCropB] = useState({ x: 0, y: 0, w: 1, h: 1 });
   const [tagA, setTagA] = useState("Gothic");
   const [tagB, setTagB] = useState("Baroque");
   const [selectionTool, setSelectionTool] = useState("brush mask");
   const [blendSelectionTarget, setBlendSelectionTarget] = useState("A");
   const [feather, setFeather] = useState(0.2);
+  const [brushSize, setBrushSize] = useState(24);
+  const [eraseTransparency, setEraseTransparency] = useState(100);
   const [blendMode, setBlendMode] = useState("opacity blend");
   const [blendOpacity, setBlendOpacity] = useState(0.5);
   const [abstractionMode, setAbstractionMode] = useState("Hybrid Linework Plate");
@@ -110,6 +114,14 @@ export default function Home() {
     smudge: 0,
     gloom: 0,
     fragmentJitter: 0,
+    sourceBInfluence: 0.55,
+    useSourceBPatch: true,
+    enableAbstractionPreview: true,
+    colorMode: "preserve",
+    colorShift: 0.25,
+    gradientLower: 0.1,
+    gradientUpper: 0.9,
+    gradientStops: ["#ff8a00", "#ffd400", "#7ed321", "#35c759", "#0a84ff"],
   });
   const [blendLineage, setBlendLineage] = useState(null);
   const [blendClearTick, setBlendClearTick] = useState(0);
@@ -117,6 +129,12 @@ export default function Home() {
   const [blendPolygonUndoTick, setBlendPolygonUndoTick] = useState(0);
   const [blendPolygonCloseTick, setBlendPolygonCloseTick] = useState(0);
   const [blendContourSimplify, setBlendContourSimplify] = useState(3);
+  const [blendApplyTick, setBlendApplyTick] = useState(0);
+  const [blendDeselectTick, setBlendDeselectTick] = useState(0);
+  const [blendDeleteTick, setBlendDeleteTick] = useState(0);
+  const [blendUndoTick, setBlendUndoTick] = useState(0);
+  const [blendRedoTick, setBlendRedoTick] = useState(0);
+  const [blendResetTick, setBlendResetTick] = useState(0);
 
   const [collapsed, setCollapsed] = useState({ detection: false, styling: false, mutation: false });
   const slotNodes = sourceSlots;
@@ -226,6 +244,39 @@ export default function Home() {
     if (format === "color palette JSON") downloadText("blend-palette.json", exportPaletteJson(blendHybridData), "application/json");
     if (format === "density grid CSV") downloadText("blend-density-grid.csv", exportDensityCsv(blendHybridData), "text/csv");
     updateBlendLineage({ exportType: format });
+  };
+
+  const resetBlendLabTools = () => {
+    setSelectionTool("brush mask");
+    setBlendSelectionTarget("A");
+    setFeather(0.2);
+    setBrushSize(24);
+    setEraseTransparency(100);
+    setBlendMode("opacity blend");
+    setBlendOpacity(0.5);
+    setAbstractionMode("Hybrid Linework Plate");
+    setBlendTransform({ x: 0, y: 0, rotation: 0, scale: 1 });
+    setBlendRegionFx({
+      blur: 0,
+      pixelate: 1,
+      glitch: 0,
+      smudge: 0,
+      gloom: 0,
+      fragmentJitter: 0,
+      sourceBInfluence: 0.55,
+      useSourceBPatch: true,
+      enableAbstractionPreview: true,
+      colorMode: "preserve",
+      colorShift: 0.25,
+      gradientLower: 0.1,
+      gradientUpper: 0.9,
+      gradientStops: ["#ff8a00", "#ffd400", "#7ed321", "#35c759", "#0a84ff"],
+    });
+    setBlendUndoTick(0);
+    setBlendRedoTick(0);
+    setSourceCropA({ x: 0, y: 0, w: 1, h: 1 });
+    setSourceCropB({ x: 0, y: 0, w: 1, h: 1 });
+    setBlendResetTick((v) => v + 1);
   };
 
   const onSelectFiles = (event) => {
@@ -423,6 +474,26 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const isUndo = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z";
+      const isRedo =
+        (event.ctrlKey || event.metaKey) &&
+        (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"));
+      if (activeTab !== "Blend Lab") return;
+      if (isUndo && !event.shiftKey) {
+        event.preventDefault();
+        setBlendUndoTick((v) => v + 1);
+      }
+      if (isRedo) {
+        event.preventDefault();
+        setBlendRedoTick((v) => v + 1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTab]);
+
   return (
     <>
       <Head>
@@ -545,6 +616,10 @@ export default function Home() {
               sourceB={sourceB}
               setSourceA={setSourceA}
               setSourceB={setSourceB}
+              sourceCropA={sourceCropA}
+              sourceCropB={sourceCropB}
+              setSourceCropA={setSourceCropA}
+              setSourceCropB={setSourceCropB}
               tagA={tagA}
               tagB={tagB}
               setTagA={setTagA}
@@ -555,6 +630,10 @@ export default function Home() {
               setSelectionTarget={setBlendSelectionTarget}
               feather={feather}
               setFeather={setFeather}
+              brushSize={brushSize}
+              setBrushSize={setBrushSize}
+              eraseTransparency={eraseTransparency}
+              setEraseTransparency={setEraseTransparency}
               blendMode={blendMode}
               setBlendMode={setBlendMode}
               opacity={blendOpacity}
@@ -579,8 +658,13 @@ export default function Home() {
               onInvertSelection={() => setBlendInvertTick((v) => v + 1)}
               onUndoPolygonNode={() => setBlendPolygonUndoTick((v) => v + 1)}
               onClosePolygon={() => setBlendPolygonCloseTick((v) => v + 1)}
+              onApplyRegion={() => setBlendApplyTick((v) => v + 1)}
+              onDeselectRegion={() => setBlendDeselectTick((v) => v + 1)}
+              onDeleteRegion={() => setBlendDeleteTick((v) => v + 1)}
+              onUndoEdit={() => setBlendUndoTick((v) => v + 1)}
+              onRedoEdit={() => setBlendRedoTick((v) => v + 1)}
+              onResetTools={resetBlendLabTools}
               transform={blendTransform}
-              regionFx={blendRegionFx}
               setTransform={setBlendTransform}
               lineage={blendLineage}
               onExport={onBlendExport}
@@ -590,6 +674,12 @@ export default function Home() {
               polygonCloseTick={blendPolygonCloseTick}
               contourSimplify={blendContourSimplify}
               setContourSimplify={setBlendContourSimplify}
+              applyTick={blendApplyTick}
+              deselectTick={blendDeselectTick}
+              deleteTick={blendDeleteTick}
+              undoTick={blendUndoTick}
+              redoTick={blendRedoTick}
+              resetTick={blendResetTick}
             />
           )}
 

@@ -30,6 +30,18 @@ export function imageDataFromImage(img, width = 1024, height = 1024, transform =
   return ctx.getImageData(0, 0, width, height);
 }
 
+export function imageDataFromImageRegion(img, crop, width = 1024, height = 1024) {
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  const safeCrop = crop || { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.max(0, Math.min(img.width - 1, Math.floor((safeCrop.x || 0) * img.width)));
+  const sy = Math.max(0, Math.min(img.height - 1, Math.floor((safeCrop.y || 0) * img.height)));
+  const sw = Math.max(1, Math.min(img.width - sx, Math.floor((safeCrop.w || 1) * img.width)));
+  const sh = Math.max(1, Math.min(img.height - sy, Math.floor((safeCrop.h || 1) * img.height)));
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+  return ctx.getImageData(0, 0, width, height);
+}
+
 export function blendImageData(a, b, mask, mode = "opacity blend", opacity = 0.5) {
   const out = new ImageData(a.width, a.height);
   const da = a.data;
@@ -39,11 +51,17 @@ export function blendImageData(a, b, mask, mode = "opacity blend", opacity = 0.5
 
   const applyMode = (av, bv, m) => {
     const alpha = m * opacity;
-    if (mode === "overlay") return av < 128 ? (2 * av * bv) / 255 : 255 - (2 * (255 - av) * (255 - bv)) / 255;
-    if (mode === "multiply") return (av * bv) / 255;
-    if (mode === "difference") return Math.abs(av - bv);
-    if (mode === "soft merge") return av * (1 - alpha) + bv * alpha;
-    return av * (1 - alpha) + bv * alpha;
+    let mixed = bv;
+    if (mode === "overlay" || mode === "region overlay") {
+      mixed = av < 128 ? (2 * av * bv) / 255 : 255 - (2 * (255 - av) * (255 - bv)) / 255;
+    } else if (mode === "multiply") {
+      mixed = (av * bv) / 255;
+    } else if (mode === "difference") {
+      mixed = Math.abs(av - bv);
+    } else if (mode === "soft merge") {
+      mixed = av * 0.4 + bv * 0.6;
+    }
+    return av * (1 - alpha) + mixed * alpha;
   };
 
   for (let i = 0; i < da.length; i += 4) {
