@@ -54,7 +54,7 @@ python -m venv .venv
 # Windows PowerShell
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### 2) Frontend (Next.js)
@@ -67,7 +67,21 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3005`.
+
+### 3) Root-level Convenience Commands
+
+From the project root:
+
+```bash
+npm run dev:backend
+npm run dev
+```
+
+For external browser usage, use:
+
+- `http://127.0.0.1:3005` (frontend)
+- `http://127.0.0.1:8000/health` (backend health)
 
 ## Controls
 

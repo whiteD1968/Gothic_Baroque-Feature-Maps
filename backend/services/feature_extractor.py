@@ -28,6 +28,13 @@ class FeatureExtractor:
         tag: str,
         original_name: str,
         export_format: str = "png",
+        palette_colors: int = 4,
+        blend_a: str = "edge_map",
+        blend_b: str = "density_map",
+        blend_c: str = "flow_map",
+        blend_weight_a: float = 0.5,
+        blend_weight_b: float = 0.3,
+        blend_weight_c: float = 0.2,
     ) -> Dict[str, Any]:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -52,6 +59,7 @@ class FeatureExtractor:
         density_map = self._density_map(edge, density_kernel)
 
         composite = self._composite_map(edge, depth, flow, density_map)
+        quantized_map = self._quantized_palette_map(composite, palette_colors)
 
         symmetry_score, symmetry_map = self._symmetry_map(gray_blur)
         deformation_map = self._deformation_map(gray_blur, edge, flow)
@@ -65,25 +73,49 @@ class FeatureExtractor:
         )
 
         ext = "jpg" if export_format.lower() in ["jpg", "jpeg"] else "png"
-        paths = {
-            "original": save_array_image(bgr, os.path.join(out_dir, f"original.{ext}")),
-            "edge_map": save_array_image(edge, os.path.join(out_dir, f"edge_map.{ext}")),
-            "shadow_depth_map": save_array_image(depth, os.path.join(out_dir, f"shadow_depth_map.{ext}")),
-            "flow_map": save_array_image(flow, os.path.join(out_dir, f"flow_map.{ext}")),
-            "node_map": save_array_image(node_map, os.path.join(out_dir, f"node_map.{ext}")),
-            "density_map": save_array_image(density_map, os.path.join(out_dir, f"density_map.{ext}")),
-            "symmetry_asymmetry_map": save_array_image(symmetry_map, os.path.join(out_dir, f"symmetry_asymmetry_map.{ext}")),
-            "deformation_map": save_array_image(deformation_map, os.path.join(out_dir, f"deformation_map.{ext}")),
-            "composite_map": save_array_image(composite, os.path.join(out_dir, f"composite_map.{ext}")),
+        map_arrays: Dict[str, np.ndarray] = {
+            "original": bgr,
+            "edge_map": edge,
+            "shadow_depth_map": depth,
+            "flow_map": flow,
+            "node_map": node_map,
+            "density_map": density_map,
+            "symmetry_asymmetry_map": symmetry_map,
+            "deformation_map": deformation_map,
+            "composite_map": composite,
+            "palette_quantized_map": quantized_map,
         }
+        combinator_map = self._combinator_map(
+            map_arrays,
+            blend_a,
+            blend_b,
+            blend_c,
+            blend_weight_a,
+            blend_weight_b,
+            blend_weight_c,
+        )
+        map_arrays["combinator_map"] = combinator_map
+        paths = {key: save_array_image(value, os.path.join(out_dir, f"{key}.{ext}")) for key, value in map_arrays.items()}
 
         description = self._description(stats, tag)
+        prompt_pack = self._midjourney_prompt_pack(
+            tag=tag,
+            description=description,
+            blend_a=blend_a,
+            blend_b=blend_b,
+            blend_c=blend_c,
+            blend_weight_a=blend_weight_a,
+            blend_weight_b=blend_weight_b,
+            blend_weight_c=blend_weight_c,
+            palette_colors=palette_colors,
+        )
 
         return {
             "original_name": original_name,
             "tag": tag,
             "maps": paths,
             "description": description,
+            "midjourney": prompt_pack,
             "metrics": {
                 "edge_ratio": round(stats.edge_ratio, 4),
                 "node_count": stats.node_count,
@@ -178,3 +210,84 @@ class FeatureExtractor:
             f"{convergence} node intersections, {complexity} ornament density shifts, {symmetry} symmetry behavior, "
             f"and {motion}."
         )
+
+    def _quantized_palette_map(self, image_bgr: np.ndarray, palette_colors: int) -> np.ndarray:
+        color_count = max(3, min(8, int(palette_colors)))
+        pixels = image_bgr.reshape((-1, 3)).astype(np.float32)
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 24, 0.8)
+        _, labels, centers = cv2.kmeans(
+            pixels,
+            color_count,
+            None,
+            criteria,
+            8,
+            cv2.KMEANS_PP_CENTERS,
+        )
+        centers_u8 = np.uint8(centers)
+        reduced = centers_u8[labels.flatten()].reshape(image_bgr.shape)
+        return reduced
+
+    def _ensure_color(self, arr: np.ndarray) -> np.ndarray:
+        if len(arr.shape) == 2:
+            return cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+        return arr
+
+    def _combinator_map(
+        self,
+        maps: Dict[str, np.ndarray],
+        blend_a: str,
+        blend_b: str,
+        blend_c: str,
+        blend_weight_a: float,
+        blend_weight_b: float,
+        blend_weight_c: float,
+    ) -> np.ndarray:
+        keys = list(maps.keys())
+        key_a = blend_a if blend_a in maps else "edge_map"
+        key_b = blend_b if blend_b in maps else "density_map"
+        key_c = blend_c if blend_c in maps else "flow_map"
+
+        a = self._ensure_color(maps[key_a]).astype(np.float32)
+        b = self._ensure_color(maps[key_b]).astype(np.float32)
+        c = self._ensure_color(maps[key_c]).astype(np.float32)
+
+        wa = max(0.0, float(blend_weight_a))
+        wb = max(0.0, float(blend_weight_b))
+        wc = max(0.0, float(blend_weight_c))
+        total = wa + wb + wc
+        if total <= 0.0:
+            wa, wb, wc, total = 1.0, 1.0, 1.0, 3.0
+        wa, wb, wc = wa / total, wb / total, wc / total
+
+        combined = (a * wa) + (b * wb) + (c * wc)
+        return np.clip(combined, 0, 255).astype(np.uint8)
+
+    def _midjourney_prompt_pack(
+        self,
+        tag: str,
+        description: str,
+        blend_a: str,
+        blend_b: str,
+        blend_c: str,
+        blend_weight_a: float,
+        blend_weight_b: float,
+        blend_weight_c: float,
+        palette_colors: int,
+    ) -> Dict[str, str]:
+        short_prompt = (
+            f"{tag} architectural behavior abstraction, non-literal form transfer, "
+            f"{palette_colors}-tone structural palette, high spatial rhythm"
+        )
+        long_prompt = (
+            f"{description} Use abstract geometry from {blend_a}, {blend_b}, and {blend_c} with weight balance "
+            f"{blend_weight_a:.2f}/{blend_weight_b:.2f}/{blend_weight_c:.2f}. Prioritize emergent composition over "
+            "historical imitation, material ambiguity, and tectonic depth."
+        )
+        params = "--ar 4:5 --stylize 275 --chaos 18 --iw 1.35 --quality 1"
+        full_prompt = f"{short_prompt}. {long_prompt} {params}"
+        return {
+            "short_prompt": short_prompt,
+            "long_prompt": long_prompt,
+            "params": params,
+            "full_prompt": full_prompt,
+        }

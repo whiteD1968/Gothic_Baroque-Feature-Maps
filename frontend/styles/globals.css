@@ -57,6 +57,12 @@ button { cursor: pointer; }
   gap: 8px;
   margin-bottom: 10px;
 }
+.blendGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
 .presetRow button {
   border-color: var(--line);
 }
@@ -82,6 +88,17 @@ button { cursor: pointer; }
 }
 .thumbMeta { padding: 8px; display: grid; gap: 6px; }
 .resultCard { border: 1px solid var(--line); padding: 10px; margin-bottom: 14px; }
+.resultCard.topRank {
+  border-color: #8a7345;
+  box-shadow: 0 0 0 2px rgba(138, 115, 69, 0.16) inset;
+}
+.pickLabel {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.88rem;
+  margin-bottom: 8px;
+}
 .resultCard figure { padding-bottom: 8px; }
 .resultCard figcaption { padding: 6px 8px 2px; font-size: 0.9rem; }
 .resultCard a { margin-left: 8px; font-size: 0.85rem; }
@@ -89,16 +106,41 @@ button { cursor: pointer; }
 .descriptionBlock { margin-top: 10px; display: grid; gap: 8px; }
 .descriptionBlock textarea { width: 100%; resize: vertical; }
 .zipLink { display: inline-block; margin-bottom: 10px; }
-.threePanel {
-  margin-top: 12px;
-  border: 1px solid var(--line);
+.graphPanel {
+  margin-top: 14px;
+  border: 1px dashed var(--line);
   background: #fff;
-  padding: 10px;
+  padding: 12px;
 }
-.threeCanvas {
-  width: 100%;
-  height: 340px;
+.graphRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.graphNode {
   border: 1px solid var(--line);
+  background: #fcfbf7;
+  padding: 10px;
+  min-width: 190px;
+  text-align: left;
+}
+.sourceNode { border-left: 3px solid #6f7f61; }
+.blendNode { border-left: 3px solid #506d7d; }
+.outputNode { border-left: 3px solid #8a7345; }
+.graphTitle {
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+.graphText { font-size: 0.85rem; }
+.graphFlow, .graphArrow {
+  font-size: 1.3rem;
+  text-align: center;
+  margin: 8px 0;
+}
+.graphHint {
+  font-size: 0.9rem;
+  color: #5f615c;
 }
 
 @media (max-width: 700px) {
