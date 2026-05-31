@@ -5,11 +5,23 @@ import TabWorkspace from "../components/ui/TabWorkspace";
 import ArchiveTab from "../components/ArchiveTab";
 import ExtractionTab from "../components/ExtractionTab";
 import TranslationTab from "../components/TranslationTab";
+import BlendLabTab from "../components/BlendLabTab";
 import ProjectionTab from "../components/ProjectionTab";
 import ExportTab from "../components/ExportTab";
 import LineageGraph from "../components/LineageGraph";
 import { BLENDABLE_MAP_KEYS, PRESETS, fileToPreview, mapLabel, resultKey } from "../components/ui/constants";
 import { buildOutputRecord } from "../lib/exportUtils";
+import { applyAbstraction, generateMutations } from "../lib/hybridAbstractionUtils";
+import {
+  downloadDataUrl,
+  downloadText,
+  exportContourSvg,
+  exportDensityCsv,
+  exportNodeCsv,
+  exportPaletteJson,
+  exportRegionSvg,
+  imageDataToCanvas,
+} from "../lib/grasshopperExportUtils";
 
 const ENV_API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const API_CANDIDATES = [ENV_API_BASE, "http://127.0.0.1:8000", "http://localhost:8000"].filter(
@@ -57,6 +69,45 @@ export default function Home() {
     online: false,
     label: "Checking connection...",
   });
+  const [sourceA, setSourceA] = useState(null);
+  const [sourceB, setSourceB] = useState(null);
+  const [tagA, setTagA] = useState("Gothic");
+  const [tagB, setTagB] = useState("Baroque");
+  const [selectionTool, setSelectionTool] = useState("brush mask");
+  const [feather, setFeather] = useState(0.2);
+  const [blendMode, setBlendMode] = useState("opacity blend");
+  const [blendOpacity, setBlendOpacity] = useState(0.5);
+  const [abstractionMode, setAbstractionMode] = useState("Hybrid Linework Plate");
+  const [blendPreset, setBlendPreset] = useState("Gothic Rib Logic");
+  const [roleAssignment, setRoleAssignment] = useState({
+    edge: "A",
+    density: "B",
+    flow: "A",
+    shadow: "B",
+    node: "A",
+    symmetry: "B",
+    texture: "B",
+  });
+  const [featureWeights, setFeatureWeights] = useState({
+    edge: 0.9,
+    density: 0.7,
+    flow: 0.6,
+    shadow: 0.5,
+    node: 0.8,
+    symmetry: 0.4,
+    texture: 0.45,
+  });
+  const [mutationCountBlend, setMutationCountBlend] = useState(9);
+  const [blendMutations, setBlendMutations] = useState([]);
+  const [blendHybridPreview, setBlendHybridPreview] = useState("");
+  const [blendHybridData, setBlendHybridData] = useState(null);
+  const [blendTransform, setBlendTransform] = useState({ x: 0, y: 0, rotation: 0, scale: 1 });
+  const [blendLineage, setBlendLineage] = useState(null);
+  const [blendClearTick, setBlendClearTick] = useState(0);
+  const [blendInvertTick, setBlendInvertTick] = useState(0);
+  const [blendPolygonUndoTick, setBlendPolygonUndoTick] = useState(0);
+  const [blendPolygonCloseTick, setBlendPolygonCloseTick] = useState(0);
+  const [blendContourSimplify, setBlendContourSimplify] = useState(3);
 
   const [collapsed, setCollapsed] = useState({ detection: false, styling: false, mutation: false });
   const slotNodes = sourceSlots;
@@ -90,6 +141,81 @@ export default function Home() {
     const output = buildOutputRecord(payload);
     setGeneratedOutputs((prev) => [output, ...prev]);
     setSelectedOutputId(output.id);
+  };
+
+  const updateBlendLineage = (overrides = {}) => {
+    const channels = Object.entries(roleAssignment).map(([k, v]) => `${k}:${v}`).join(", ");
+    const weights = Object.entries(featureWeights).map(([k, v]) => `${k}:${v.toFixed(2)}`).join(", ");
+    setBlendLineage({
+      sourceA: sourceA?.name || "Source A",
+      sourceB: sourceB?.name || "Source B",
+      selectionTool,
+      channels,
+      blendMode,
+      weights,
+      abstractionMode,
+      mutation: `${mutationCountBlend} variants`,
+      exportType: overrides.exportType || "Pending",
+    });
+  };
+
+  const applyBlendPreset = (name) => {
+    setBlendPreset(name);
+    if (name === "Gothic Rib Logic") {
+      setBlendMode("edge-transfer");
+      setAbstractionMode("Hybrid Linework Plate");
+      setFeatureWeights((p) => ({ ...p, edge: 1, node: 0.9, flow: 0.65 }));
+    } else if (name === "Baroque Swell Logic") {
+      setBlendMode("field merge");
+      setAbstractionMode("Field Condition Map");
+      setFeatureWeights((p) => ({ ...p, shadow: 1, flow: 0.9, density: 0.85 }));
+    } else if (name === "Monochrome Ink") {
+      setBlendMode("contour fusion");
+      setAbstractionMode("Contour / Hatch Drawing");
+    } else if (name === "MidJourney Board") {
+      setBlendMode("pattern crossbreed");
+      setAbstractionMode("MidJourney Reference Board");
+    }
+    updateBlendLineage();
+  };
+
+  const onBlendHybridReady = ({ imageData, preview }) => {
+    setBlendHybridData(imageData);
+    const abstracted = applyAbstraction(imageData, abstractionMode);
+    setBlendHybridPreview(imageDataToCanvas(abstracted).toDataURL("image/png", 0.95));
+    updateBlendLineage();
+  };
+
+  const onGenerateBlendMutations = () => {
+    if (!blendHybridData) return;
+    const variants = generateMutations(blendHybridData, mutationCountBlend);
+    const urls = variants.map((img) => imageDataToCanvas(img).toDataURL("image/png", 0.95));
+    setBlendMutations(urls);
+    registerGeneratedOutput({
+      kind: "blend-lab",
+      title: "Blend Mutation Sheet",
+      previewUrl: urls[0],
+      metadata: { lineage: { ...(blendLineage || {}), mutation: `${mutationCountBlend} variants` } },
+    });
+    updateBlendLineage();
+  };
+
+  const onBlendExport = (format) => {
+    if (!blendHybridData) return;
+    const canvas = imageDataToCanvas(blendHybridData);
+    if (format === "PNG") downloadDataUrl(`blend-hybrid.${"png"}`, canvas.toDataURL("image/png", 0.95));
+    if (format === "JPG") downloadDataUrl(`blend-hybrid.${"jpg"}`, canvas.toDataURL("image/jpeg", 0.95));
+    if (format === "SVG contour lines") downloadText("blend-contours.svg", exportContourSvg(blendHybridData, 128, blendContourSimplify), "image/svg+xml");
+    if (format === "SVG region boundaries") downloadText("blend-regions.svg", exportRegionSvg(blendHybridData), "image/svg+xml");
+    if (format === "grayscale heightmap") {
+      const gray = applyAbstraction(blendHybridData, "Contour / Hatch Drawing");
+      downloadDataUrl("blend-heightmap.png", imageDataToCanvas(gray).toDataURL("image/png", 0.95));
+    }
+    if (format === "node coordinate CSV") downloadText("blend-nodes.csv", exportNodeCsv(blendHybridData), "text/csv");
+    if (format === "JSON metadata") downloadText("blend-lineage.json", JSON.stringify(blendLineage || {}, null, 2), "application/json");
+    if (format === "color palette JSON") downloadText("blend-palette.json", exportPaletteJson(blendHybridData), "application/json");
+    if (format === "density grid CSV") downloadText("blend-density-grid.csv", exportDensityCsv(blendHybridData), "text/csv");
+    updateBlendLineage({ exportType: format });
   };
 
   const onSelectFiles = (event) => {
@@ -400,6 +526,55 @@ export default function Home() {
               exportFormat={exportFormat}
               registerGeneratedOutput={registerGeneratedOutput}
               slotNodes={slotNodes}
+            />
+          )}
+
+          {activeTab === "Blend Lab" && (
+            <BlendLabTab
+              sourceA={sourceA}
+              sourceB={sourceB}
+              setSourceA={setSourceA}
+              setSourceB={setSourceB}
+              tagA={tagA}
+              tagB={tagB}
+              setTagA={setTagA}
+              setTagB={setTagB}
+              selectionTool={selectionTool}
+              setSelectionTool={setSelectionTool}
+              feather={feather}
+              setFeather={setFeather}
+              blendMode={blendMode}
+              setBlendMode={setBlendMode}
+              opacity={blendOpacity}
+              setOpacity={setBlendOpacity}
+              abstractionMode={abstractionMode}
+              setAbstractionMode={setAbstractionMode}
+              preset={blendPreset}
+              applyPreset={applyBlendPreset}
+              roleAssignment={roleAssignment}
+              setRoleAssignment={setRoleAssignment}
+              featureWeights={featureWeights}
+              setFeatureWeights={setFeatureWeights}
+              mutationCount={mutationCountBlend}
+              setMutationCount={setMutationCountBlend}
+              hybridPreview={blendHybridPreview}
+              mutations={blendMutations}
+              onGenerateHybrid={onBlendHybridReady}
+              onGenerateMutations={onGenerateBlendMutations}
+              onClearSelection={() => setBlendClearTick((v) => v + 1)}
+              onInvertSelection={() => setBlendInvertTick((v) => v + 1)}
+              onUndoPolygonNode={() => setBlendPolygonUndoTick((v) => v + 1)}
+              onClosePolygon={() => setBlendPolygonCloseTick((v) => v + 1)}
+              transform={blendTransform}
+              setTransform={setBlendTransform}
+              lineage={blendLineage}
+              onExport={onBlendExport}
+              clearTick={blendClearTick}
+              invertTick={blendInvertTick}
+              polygonUndoTick={blendPolygonUndoTick}
+              polygonCloseTick={blendPolygonCloseTick}
+              contourSimplify={blendContourSimplify}
+              setContourSimplify={setBlendContourSimplify}
             />
           )}
 

@@ -1,5 +1,5 @@
 export default function Sidebar({ activeTab, setActiveTab, stats, backendStatus, onRetryBackend }) {
-  const tabs = ["Archive", "Extraction", "Translation", "Projection", "Export"];
+  const tabs = ["Archive", "Extraction", "Translation", "Blend Lab", "Projection", "Export"];
 
   return (
     <aside className="sidebar glass-panel">
