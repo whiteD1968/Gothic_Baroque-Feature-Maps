@@ -94,6 +94,7 @@ export default function BlendCanvas({
   roleAssignment,
   featureWeights,
   transform,
+  regionFx,
   onHybridReady,
   clearTick,
   invertTick,
@@ -116,6 +117,102 @@ export default function BlendCanvas({
   const points = selectionTarget === "A" ? pointsA : pointsB;
   const setPoints = selectionTarget === "A" ? setPointsA : setPointsB;
   const activeMaskRef = selectionTarget === "A" ? maskARef : maskBRef;
+
+  const applyRegionFx = (regionData, fx) => {
+    const safeFx = fx || { blur: 0, pixelate: 1, glitch: 0, smudge: 0, gloom: 0, fragmentJitter: 0 };
+    const canvas = document.createElement("canvas");
+    canvas.width = regionData.width;
+    canvas.height = regionData.height;
+    const ctx = canvas.getContext("2d");
+    ctx.putImageData(regionData, 0, 0);
+
+    if (safeFx.blur > 0.01) {
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      const tctx = temp.getContext("2d");
+      tctx.filter = `blur(${safeFx.blur}px)`;
+      tctx.drawImage(canvas, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.filter = "none";
+      ctx.drawImage(temp, 0, 0);
+    }
+
+    if (safeFx.pixelate > 1) {
+      const step = Math.max(1, Math.floor(safeFx.pixelate));
+      const small = document.createElement("canvas");
+      small.width = Math.max(1, Math.floor(canvas.width / step));
+      small.height = Math.max(1, Math.floor(canvas.height / step));
+      const sctx = small.getContext("2d");
+      sctx.imageSmoothingEnabled = false;
+      sctx.drawImage(canvas, 0, 0, small.width, small.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = true;
+    }
+
+    if (safeFx.glitch > 0.01) {
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      const tctx = temp.getContext("2d");
+      tctx.drawImage(canvas, 0, 0);
+      const bands = Math.floor(12 + safeFx.glitch * 45);
+      for (let i = 0; i < bands; i += 1) {
+        const y = Math.floor(Math.random() * canvas.height);
+        const h = Math.max(1, Math.floor(2 + Math.random() * 12));
+        const shift = Math.floor((Math.random() - 0.5) * safeFx.glitch * 90);
+        ctx.drawImage(temp, 0, y, canvas.width, h, shift, y, canvas.width, h);
+      }
+      ctx.globalCompositeOperation = "screen";
+      ctx.globalAlpha = safeFx.glitch * 0.45;
+      ctx.drawImage(temp, 2, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+    }
+
+    if (safeFx.smudge > 0.01) {
+      const passes = Math.floor(2 + safeFx.smudge * 10);
+      for (let i = 0; i < passes; i += 1) {
+        const offX = Math.floor((Math.random() - 0.5) * safeFx.smudge * 22);
+        const offY = Math.floor((Math.random() - 0.5) * safeFx.smudge * 12);
+        ctx.globalAlpha = 0.08 + safeFx.smudge * 0.12;
+        ctx.drawImage(canvas, offX, offY);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    if (safeFx.fragmentJitter > 0.01) {
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      temp.getContext("2d").drawImage(canvas, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const tile = 20;
+      for (let y = 0; y < canvas.height; y += tile) {
+        for (let x = 0; x < canvas.width; x += tile) {
+          const jx = Math.floor((Math.random() - 0.5) * safeFx.fragmentJitter * 38);
+          const jy = Math.floor((Math.random() - 0.5) * safeFx.fragmentJitter * 38);
+          ctx.drawImage(temp, x, y, tile, tile, x + jx, y + jy, tile, tile);
+        }
+      }
+    }
+
+    if (safeFx.gloom > 0.01) {
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const g = (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
+        const d = 1 - safeFx.gloom * 0.7;
+        img.data[i] = Math.max(0, Math.min(255, g * d));
+        img.data[i + 1] = Math.max(0, Math.min(255, g * d));
+        img.data[i + 2] = Math.max(0, Math.min(255, g * d + 8));
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  };
 
   useEffect(() => {
     maskARef.current = createMaskCanvas(W, H);
@@ -163,9 +260,14 @@ export default function BlendCanvas({
     const maskA = maskFromAlpha(maskARef.current);
     const maskB = maskFromAlpha(maskBRef.current);
 
-    const regionA = applyMaskToImageData(baseA, maskA);
-    const regionBRaw = applyMaskToImageData(baseB, maskB);
-    const regionB = transformRegionImageData(regionBRaw, transform);
+    let regionA = applyMaskToImageData(baseA, maskA);
+    let regionB = applyMaskToImageData(baseB, maskB);
+
+    if (selectionTarget === "A") regionA = transformRegionImageData(regionA, transform);
+    if (selectionTarget === "B") regionB = transformRegionImageData(regionB, transform);
+
+    regionA = applyRegionFx(regionA, regionFx);
+    regionB = applyRegionFx(regionB, regionFx);
 
     const isFeatureMode = ["edge-transfer", "density-transfer", "contour fusion", "pattern crossbreed", "field merge", "palette transfer"].includes(blendMode);
     const blendedRegion = isFeatureMode
@@ -211,7 +313,7 @@ export default function BlendCanvas({
 
   useEffect(() => {
     rebuild();
-  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget, regionFx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep polygon masks in sync with node edits so dragging/inserting points updates the actual selected region.
   useEffect(() => {

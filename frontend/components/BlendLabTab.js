@@ -32,6 +32,8 @@ export default function BlendLabTab(props) {
     setAbstractionMode,
     preset,
     applyPreset,
+    regionFx,
+    setRegionFx,
     roleAssignment,
     setRoleAssignment,
     featureWeights,
@@ -103,6 +105,8 @@ export default function BlendLabTab(props) {
               setOpacity={setOpacity}
               preset={preset}
               applyPreset={applyPreset}
+              regionFx={regionFx}
+              setRegionFx={setRegionFx}
               abstractionMode={abstractionMode}
               setAbstractionMode={setAbstractionMode}
             />
@@ -118,6 +122,7 @@ export default function BlendLabTab(props) {
             roleAssignment={roleAssignment}
             featureWeights={featureWeights}
             transform={transform}
+            regionFx={regionFx}
             onHybridReady={onGenerateHybrid}
             clearTick={clearTick}
             invertTick={invertTick}

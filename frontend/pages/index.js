@@ -103,6 +103,14 @@ export default function Home() {
   const [blendHybridPreview, setBlendHybridPreview] = useState("");
   const [blendHybridData, setBlendHybridData] = useState(null);
   const [blendTransform, setBlendTransform] = useState({ x: 0, y: 0, rotation: 0, scale: 1 });
+  const [blendRegionFx, setBlendRegionFx] = useState({
+    blur: 0,
+    pixelate: 1,
+    glitch: 0,
+    smudge: 0,
+    gloom: 0,
+    fragmentJitter: 0,
+  });
   const [blendLineage, setBlendLineage] = useState(null);
   const [blendClearTick, setBlendClearTick] = useState(0);
   const [blendInvertTick, setBlendInvertTick] = useState(0);
@@ -153,6 +161,7 @@ export default function Home() {
       selectionTool,
       channels,
       blendMode,
+      region_fx: blendRegionFx,
       weights,
       abstractionMode,
       mutation: `${mutationCountBlend} variants`,
@@ -554,6 +563,8 @@ export default function Home() {
               setAbstractionMode={setAbstractionMode}
               preset={blendPreset}
               applyPreset={applyBlendPreset}
+              regionFx={blendRegionFx}
+              setRegionFx={setBlendRegionFx}
               roleAssignment={roleAssignment}
               setRoleAssignment={setRoleAssignment}
               featureWeights={featureWeights}
@@ -569,6 +580,7 @@ export default function Home() {
               onUndoPolygonNode={() => setBlendPolygonUndoTick((v) => v + 1)}
               onClosePolygon={() => setBlendPolygonCloseTick((v) => v + 1)}
               transform={blendTransform}
+              regionFx={blendRegionFx}
               setTransform={setBlendTransform}
               lineage={blendLineage}
               onExport={onBlendExport}

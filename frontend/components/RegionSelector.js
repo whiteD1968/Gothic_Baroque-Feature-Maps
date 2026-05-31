@@ -33,10 +33,10 @@
         <input type="range" min="0" max="1" step="0.05" value={feather} onChange={(e) => setFeather(Number(e.target.value))} />
       </div>
       <div className="field-row">
-        <label>Move X (B region)</label><input type="range" min="-300" max="300" value={transform.x} onChange={(e) => setTransform((p) => ({ ...p, x: Number(e.target.value) }))} />
-        <label>Move Y (B region)</label><input type="range" min="-300" max="300" value={transform.y} onChange={(e) => setTransform((p) => ({ ...p, y: Number(e.target.value) }))} />
-        <label>Rotate (B region)</label><input type="range" min="-180" max="180" value={transform.rotation} onChange={(e) => setTransform((p) => ({ ...p, rotation: Number(e.target.value) }))} />
-        <label>Scale (B region)</label><input type="range" min="0.2" max="2" step="0.05" value={transform.scale} onChange={(e) => setTransform((p) => ({ ...p, scale: Number(e.target.value) }))} />
+        <label>Move X (active region)</label><input type="range" min="-300" max="300" value={transform.x} onChange={(e) => setTransform((p) => ({ ...p, x: Number(e.target.value) }))} />
+        <label>Move Y (active region)</label><input type="range" min="-300" max="300" value={transform.y} onChange={(e) => setTransform((p) => ({ ...p, y: Number(e.target.value) }))} />
+        <label>Rotate (active region)</label><input type="range" min="-180" max="180" value={transform.rotation} onChange={(e) => setTransform((p) => ({ ...p, rotation: Number(e.target.value) }))} />
+        <label>Scale (active region)</label><input type="range" min="0.2" max="2" step="0.05" value={transform.scale} onChange={(e) => setTransform((p) => ({ ...p, scale: Number(e.target.value) }))} />
       </div>
       <div className="card-actions">
         <button type="button" onClick={onUndoPolygonNode}>Undo Node</button>
