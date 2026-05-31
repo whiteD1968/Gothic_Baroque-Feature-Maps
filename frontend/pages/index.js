@@ -70,7 +70,8 @@ export default function Home() {
   const [blendWeightC, setBlendWeightC] = useState(20);
   const [mutationCount, setMutationCount] = useState(12);
   const [mutationJitter, setMutationJitter] = useState(0.2);
-  const [selectedResultKeys, setSelectedResultKeys] = useState([]);
+  const [sourceSlots, setSourceSlots] = useState([null, null, null]);
+  const [dragResultKey, setDragResultKey] = useState(null);
   const [crossMapA, setCrossMapA] = useState("edge_map");
   const [crossMapB, setCrossMapB] = useState("density_map");
   const [crossMapC, setCrossMapC] = useState("flow_map");
@@ -81,6 +82,7 @@ export default function Home() {
   const [crossTileRepeat, setCrossTileRepeat] = useState(2);
   const [crossResult, setCrossResult] = useState(null);
   const [crossLoading, setCrossLoading] = useState(false);
+  const selectedResultKeys = useMemo(() => sourceSlots.filter(Boolean), [sourceSlots]);
 
   const canRun = useMemo(() => items.length > 0 && !isLoading, [items, isLoading]);
   const onManualControl = (setter, value) => {
@@ -122,7 +124,8 @@ export default function Home() {
     setResults([]);
     setBatchZip("");
     setTop3Zip("");
-    setSelectedResultKeys([]);
+    setSourceSlots([null, null, null]);
+    setDragResultKey(null);
     setCrossResult(null);
     try {
       const form = new FormData();
@@ -178,18 +181,48 @@ export default function Home() {
     const el = document.getElementById(cardDomId(key));
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const toggleResultSelection = (key) => {
-    setSelectedResultKeys((prev) => {
-      if (prev.includes(key)) return prev.filter((p) => p !== key);
-      if (prev.length >= 3) return prev;
-      return [...prev, key];
+  const assignSlotByKey = (slotIdx, key) => {
+    setSourceSlots((prev) => {
+      const next = [...prev];
+      const existingIdx = next.indexOf(key);
+      if (existingIdx !== -1) next[existingIdx] = null;
+      next[slotIdx] = key;
+      return next;
     });
+  };
+  const addToNextAvailableSlot = (key) => {
+    setSourceSlots((prev) => {
+      if (prev.includes(key)) return prev;
+      const next = [...prev];
+      const openIdx = next.findIndex((x) => !x);
+      if (openIdx === -1) return prev;
+      next[openIdx] = key;
+      return next;
+    });
+  };
+  const clearSourceSlot = (slotIdx) => {
+    setSourceSlots((prev) => {
+      const next = [...prev];
+      next[slotIdx] = null;
+      return next;
+    });
+  };
+  const onDropToSlot = (slotIdx) => {
+    if (!dragResultKey) return;
+    assignSlotByKey(slotIdx, dragResultKey);
+    setDragResultKey(null);
+  };
+  const onDragOverSlot = (event) => {
+    event.preventDefault();
   };
 
   const runCrossBlend = async () => {
-    const selected = results
-      .map((result, idx) => ({ result, idx, key: resultKey(result, idx) }))
-      .filter((x) => selectedResultKeys.includes(x.key));
+    const resultLookup = Object.fromEntries(
+      results.map((result, idx) => [resultKey(result, idx), { result, idx, key: resultKey(result, idx) }]),
+    );
+    const selected = sourceSlots
+      .map((key) => resultLookup[key])
+      .filter(Boolean);
     if (selected.length < 2 || selected.length > 3) {
       alert("Select 2 or 3 result cards first.");
       return;
@@ -232,9 +265,11 @@ export default function Home() {
     }
   };
 
-  const selectedGraphNodes = results
-    .map((result, idx) => ({ result, idx, key: resultKey(result, idx) }))
-    .filter((x) => selectedResultKeys.includes(x.key));
+  const graphLookup = useMemo(
+    () => Object.fromEntries(results.map((result, idx) => [resultKey(result, idx), { result, idx, key: resultKey(result, idx) }])),
+    [results],
+  );
+  const slottedGraphNodes = sourceSlots.map((key) => (key ? graphLookup[key] : null));
   const graphMapKeys = [crossMapA, crossMapB, crossMapC];
 
   return (
@@ -367,17 +402,22 @@ export default function Home() {
               id={cardDomId(resultKey(result, idx))}
               className={`resultCard ${result.variant?.is_top3 ? "topRank" : ""}`}
               key={`${result.original_name}-${idx}`}
+              draggable
+              onDragStart={() => setDragResultKey(resultKey(result, idx))}
+              onDragEnd={() => setDragResultKey(null)}
             >
               <header>
                 <h3>{result.original_name} ({result.tag})</h3>
-                <label className="pickLabel">
-                  <input
-                    type="checkbox"
-                    checked={selectedResultKeys.includes(resultKey(result, idx))}
-                    onChange={() => toggleResultSelection(resultKey(result, idx))}
-                  />
-                  Select For Cross-Blend
-                </label>
+                <div className="pickLabel">
+                  <button type="button" onClick={() => addToNextAvailableSlot(resultKey(result, idx))}>
+                    Add To Source Slots
+                  </button>
+                  <span>
+                    {sourceSlots.includes(resultKey(result, idx))
+                      ? `In Slot #${sourceSlots.indexOf(resultKey(result, idx)) + 1}`
+                      : "Not Slotted"}
+                  </span>
+                </div>
                 {result.variant && (
                   <p className="sub">
                     Rank #{result.variant.rank}/{result.variant.variant_count} | Score {result.variant.fitness_score}
@@ -470,11 +510,42 @@ export default function Home() {
 
           <div className="graphPanel">
             <h4>Lineage Graph</h4>
+            <div className="dropSlots">
+              {[0, 1, 2].map((slotIdx) => {
+                const node = slottedGraphNodes[slotIdx];
+                return (
+                  <div
+                    key={`slot-${slotIdx}`}
+                    className={`dropSlot ${node ? "filledSlot" : ""}`}
+                    onDragOver={onDragOverSlot}
+                    onDrop={() => onDropToSlot(slotIdx)}
+                  >
+                    <div className="graphTitle">Source Slot #{slotIdx + 1}</div>
+                    {node ? (
+                      <>
+                        {node.result?.maps?.original && (
+                          <img
+                            className="slotThumb"
+                            src={`${API_BASE}/api/download/file?path=${encodeURIComponent(node.result.maps.original)}`}
+                            alt={`${node.result.original_name} preview`}
+                          />
+                        )}
+                        <div className="graphText">{node.result.original_name}</div>
+                        <div className="graphText">{mapLabel(graphMapKeys[slotIdx] || crossMapA)}</div>
+                        <button type="button" onClick={() => clearSourceSlot(slotIdx)}>Remove</button>
+                      </>
+                    ) : (
+                      <div className="graphHint">Drag a result card here</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
             <div className="graphRow">
-              {selectedGraphNodes.length === 0 && (
+              {selectedResultKeys.length === 0 && (
                 <div className="graphHint">Select 2-3 result cards above to build a cross-reference lineage.</div>
               )}
-              {selectedGraphNodes.map((node, i) => (
+              {slottedGraphNodes.filter(Boolean).map((node, i) => (
                 <button
                   key={node.key}
                   className="graphNode sourceNode"
@@ -488,10 +559,10 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            {selectedGraphNodes.length > 0 && (
+            {selectedResultKeys.length > 0 && (
               <div className="graphFlow">+</div>
             )}
-            {selectedGraphNodes.length > 0 && (
+            {selectedResultKeys.length > 0 && (
               <div className="graphRow">
                 <div className="graphNode blendNode">
                   <div className="graphTitle">Cross-Blend Node</div>
