@@ -2,15 +2,13 @@ import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
 import Sidebar from "../components/ui/Sidebar";
 import TabWorkspace from "../components/ui/TabWorkspace";
-import UploadZone from "../components/ui/UploadZone";
-import ImageCard from "../components/ui/ImageCard";
-import PresetCard from "../components/ui/PresetCard";
-import ControlCard from "../components/ui/ControlCard";
-import ResultCard from "../components/ui/ResultCard";
-import ComposerBoard from "../components/ui/ComposerBoard";
-import LineageGraph from "../components/ui/LineageGraph";
-import ExportPanel from "../components/ui/ExportPanel";
+import ArchiveTab from "../components/ArchiveTab";
+import ExtractionTab from "../components/ExtractionTab";
+import TranslationTab from "../components/TranslationTab";
+import ProjectionTab from "../components/ProjectionTab";
+import ExportTab from "../components/ExportTab";
 import { BLENDABLE_MAP_KEYS, PRESETS, fileToPreview, mapLabel, resultKey } from "../components/ui/constants";
+import { buildOutputRecord } from "../lib/exportUtils";
 
 const ENV_API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const API_CANDIDATES = [ENV_API_BASE, "http://127.0.0.1:8000", "http://localhost:8000"].filter(
@@ -18,7 +16,7 @@ const API_CANDIDATES = [ENV_API_BASE, "http://127.0.0.1:8000", "http://localhost
 );
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState("Library");
+  const [activeTab, setActiveTab] = useState("Archive");
   const [items, setItems] = useState([]);
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,6 +50,8 @@ export default function Home() {
   const [crossResult, setCrossResult] = useState(null);
   const [crossLoading, setCrossLoading] = useState(false);
   const [apiBase, setApiBase] = useState(API_CANDIDATES[0] || "http://127.0.0.1:8000");
+  const [generatedOutputs, setGeneratedOutputs] = useState([]);
+  const [selectedOutputId, setSelectedOutputId] = useState("");
   const [backendStatus, setBackendStatus] = useState({
     online: false,
     label: "Checking connection...",
@@ -60,11 +60,32 @@ export default function Home() {
   const [collapsed, setCollapsed] = useState({ detection: false, styling: false, mutation: false });
   const slotNodes = sourceSlots;
   const selectedCount = useMemo(() => sourceSlots.filter(Boolean).length, [sourceSlots]);
+  const extractionOutputs = ["Edge Map", "Shadow / Depth Map", "Flow Map", "Node Map", "Density Map", "Composite Map"];
+  const translationOutputs = [
+    "Taxonomy / Lineage Board",
+    "Hybrid Linework Plate",
+    "Pattern Mutation Sheet",
+    "Field Condition Map",
+    "MidJourney Reference Board",
+  ];
+  const projectionSurfaces = [
+    "planar tile",
+    "vault patch",
+    "stereotomic block",
+    "column fragment",
+    "minimal surface patch",
+  ];
 
   const datasetStats = useMemo(() => {
     const mapCount = results.reduce((sum, result) => sum + Object.keys(result.maps || {}).length, 0);
-    return { images: items.length, maps: mapCount, composites: crossResult ? 1 : 0 };
-  }, [items, results, crossResult]);
+    return { images: items.length, maps: mapCount, composites: crossResult ? 1 : generatedOutputs.length };
+  }, [items, results, crossResult, generatedOutputs.length]);
+
+  const registerGeneratedOutput = (payload) => {
+    const output = buildOutputRecord(payload);
+    setGeneratedOutputs((prev) => [output, ...prev]);
+    setSelectedOutputId(output.id);
+  };
 
   const onSelectFiles = (event) => {
     const selected = Array.from(event.target.files || []);
@@ -104,6 +125,8 @@ export default function Home() {
     setBatchZip("");
     setTop3Zip("");
     setCrossResult(null);
+    setGeneratedOutputs([]);
+    setSelectedOutputId("");
     try {
       const form = new FormData();
       items.forEach((item) => {
@@ -134,7 +157,7 @@ export default function Home() {
       setResults(data.results || []);
       setBatchZip(`${apiBase}${data.batch_zip}`);
       setTop3Zip(data.top3_zip ? `${apiBase}${data.top3_zip}` : "");
-      setActiveTab("Feature Maps");
+      setActiveTab("Extraction");
     } catch (error) {
       const message = String(error?.message || "");
       if (message.includes("Failed to fetch")) {
@@ -195,7 +218,7 @@ export default function Home() {
       }
       const data = await response.json();
       setCrossResult(data);
-      setActiveTab("Export");
+      setActiveTab("Projection");
     } catch (error) {
       alert(String(error?.message || "Cross-blend failed."));
     } finally {
@@ -257,171 +280,118 @@ export default function Home() {
         />
 
         <TabWorkspace activeTab={activeTab}>
-          {activeTab === "Library" && (
-            <section className="tab-panel">
-              <section className="intro-copy glass-panel">
-                <h2>Feature Extraction + Graphic Translation Lab</h2>
-                <p>
-                  This tool treats historical architecture as a database of latent spatial, ornamental, and structural
-                  features. It extracts architectural intelligence from Gothic and Baroque precedents and translates
-                  those features into abstract visual references for AI-assisted design, digital spolia, computational
-                  craft, and material fabrication workflows.
-                </p>
-              </section>
-              <UploadZone onSelectFiles={onSelectFiles} />
-              <div className="panel-head">
-                <h2>Library</h2>
-                <button type="button" onClick={() => runExtraction(false)} disabled={!items.length || isLoading || !backendStatus.online}>
-                  {isLoading ? "Analyzing..." : "Analyze Library"}
-                </button>
-              </div>
-              <div className="gallery-grid">
-                {items.map((item) => (
-                  <ImageCard
-                    key={item.id}
-                    item={item}
-                    onTagChange={updateTag}
-                    onRemove={removeItem}
-                    onAnalyze={() => runExtraction(false)}
-                    analyzeDisabled={!backendStatus.online || isLoading}
-                    onView={() => window.open(item.previewUrl, "_blank", "noopener,noreferrer")}
-                  />
-                ))}
-              </div>
-            </section>
+          {activeTab === "Archive" && (
+            <ArchiveTab
+              items={items}
+              onSelectFiles={onSelectFiles}
+              runExtraction={runExtraction}
+              isLoading={isLoading}
+              backendOnline={backendStatus.online}
+              updateTag={updateTag}
+              removeItem={removeItem}
+            />
           )}
 
-          {activeTab === "Feature Maps" && (
-            <section className="tab-panel">
-              <div className="preset-grid">
-                {Object.entries(PRESETS).map(([key, cfg]) => (
-                  <PresetCard
-                    key={key}
-                    title={cfg.label}
-                    subtitle={`Low ${cfg.edgeLow ?? "-"} / High ${cfg.edgeHigh ?? "-"}`}
-                    active={preset === key}
-                    onClick={() => applyPreset(key)}
-                  />
-                ))}
-              </div>
-              <div className="panel-head">
-                <h3>Selected for Composer: {selectedCount} / 3</h3>
-                <button type="button" onClick={() => setActiveTab("Composer")} disabled={!selectedCount}>
-                  Open Composer
-                </button>
-              </div>
-
-              <div className="controls-grid">
-                <ControlCard
-                  title="Detection Settings"
-                  collapsed={collapsed.detection}
-                  onToggle={() => setCollapsed((prev) => ({ ...prev, detection: !prev.detection }))}
-                >
-                  <label>Edge Low {edgeLow}</label>
-                  <input type="range" min="10" max="200" value={edgeLow} onChange={(e) => { setEdgeLow(Number(e.target.value)); setPreset("custom"); }} />
-                  <label>Edge High {edgeHigh}</label>
-                  <input type="range" min="50" max="300" value={edgeHigh} onChange={(e) => { setEdgeHigh(Number(e.target.value)); setPreset("custom"); }} />
-                  <label>Density Kernel {densityKernel}</label>
-                  <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => { setDensityKernel(Number(e.target.value)); setPreset("custom"); }} />
-                </ControlCard>
-
-                <ControlCard
-                  title="Map Styling"
-                  collapsed={collapsed.styling}
-                  onToggle={() => setCollapsed((prev) => ({ ...prev, styling: !prev.styling }))}
-                >
-                  <label>Palette Colors {paletteColors}</label>
-                  <input type="range" min="3" max="8" value={paletteColors} onChange={(e) => setPaletteColors(Number(e.target.value))} />
-                  <label>Blend A</label>
-                  <select value={blendA} onChange={(e) => setBlendA(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
-                  <label>Blend B</label>
-                  <select value={blendB} onChange={(e) => setBlendB(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
-                  <label>Blend C</label>
-                  <select value={blendC} onChange={(e) => setBlendC(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
-                </ControlCard>
-
-                <ControlCard
-                  title="Mutation"
-                  collapsed={collapsed.mutation}
-                  onToggle={() => setCollapsed((prev) => ({ ...prev, mutation: !prev.mutation }))}
-                >
-                  <label>Weight A {blendWeightA}%</label>
-                  <input type="range" min="0" max="100" value={blendWeightA} onChange={(e) => setBlendWeightA(Number(e.target.value))} />
-                  <label>Weight B {blendWeightB}%</label>
-                  <input type="range" min="0" max="100" value={blendWeightB} onChange={(e) => setBlendWeightB(Number(e.target.value))} />
-                  <label>Weight C {blendWeightC}%</label>
-                  <input type="range" min="0" max="100" value={blendWeightC} onChange={(e) => setBlendWeightC(Number(e.target.value))} />
-                  <label>Mutation Count {mutationCount}</label>
-                  <input type="range" min="2" max="30" value={mutationCount} onChange={(e) => setMutationCount(Number(e.target.value))} />
-                  <label>Mutation Jitter {mutationJitter.toFixed(2)}</label>
-                  <input type="range" min="0" max="1" step="0.05" value={mutationJitter} onChange={(e) => setMutationJitter(Number(e.target.value))} />
-                  <button type="button" onClick={() => runExtraction(true)} disabled={!items.length || isLoading || !backendStatus.online}>
-                    {isLoading ? "Processing..." : "Generate Variants"}
-                  </button>
-                </ControlCard>
-              </div>
-
-              <div className="result-grid">
-                {results.map((result, idx) => (
-                  <ResultCard
-                    key={resultKey(result, idx)}
-                    result={result}
-                    title={result.original_name}
-                    apiBase={apiBase}
-                    onSendToComposer={() => addToComposer(result, idx)}
-                  />
-                ))}
-              </div>
-            </section>
+          {activeTab === "Extraction" && (
+            <ExtractionTab
+              extractionOutputs={extractionOutputs}
+              preset={preset}
+              applyPreset={applyPreset}
+              selectedCount={selectedCount}
+              setActiveTab={setActiveTab}
+              collapsed={collapsed}
+              setCollapsed={setCollapsed}
+              edgeLow={edgeLow}
+              setEdgeLow={setEdgeLow}
+              edgeHigh={edgeHigh}
+              setEdgeHigh={setEdgeHigh}
+              densityKernel={densityKernel}
+              setDensityKernel={setDensityKernel}
+              setPreset={setPreset}
+              paletteColors={paletteColors}
+              setPaletteColors={setPaletteColors}
+              blendA={blendA}
+              setBlendA={setBlendA}
+              blendB={blendB}
+              setBlendB={setBlendB}
+              blendC={blendC}
+              setBlendC={setBlendC}
+              blendWeightA={blendWeightA}
+              setBlendWeightA={setBlendWeightA}
+              blendWeightB={blendWeightB}
+              setBlendWeightB={setBlendWeightB}
+              blendWeightC={blendWeightC}
+              setBlendWeightC={setBlendWeightC}
+              mutationCount={mutationCount}
+              setMutationCount={setMutationCount}
+              mutationJitter={mutationJitter}
+              setMutationJitter={setMutationJitter}
+              runExtraction={runExtraction}
+              items={items}
+              isLoading={isLoading}
+              backendOnline={backendStatus.online}
+              results={results}
+              apiBase={apiBase}
+              addToComposer={addToComposer}
+            />
           )}
 
-          {activeTab === "Composer" && (
-            <section className="tab-panel">
-              <ComposerBoard
-                slots={slotNodes}
-                slotMaps={[crossMapA, crossMapB, crossMapC]}
-                slotWeights={[crossWeightA, crossWeightB, crossWeightC]}
-                setSlotMap={(idx, value) => {
-                  if (idx === 0) setCrossMapA(value);
-                  if (idx === 1) setCrossMapB(value);
-                  if (idx === 2) setCrossMapC(value);
-                }}
-                setSlotWeight={(idx, value) => {
-                  if (idx === 0) setCrossWeightA(value);
-                  if (idx === 1) setCrossWeightB(value);
-                  if (idx === 2) setCrossWeightC(value);
-                }}
-                onClearSlot={(idx) => setSourceSlots((prev) => prev.map((value, i) => (i === idx ? null : value)))}
-                onGenerateVariants={() => runExtraction(true)}
-                onCrossReference={runCrossBlend}
-                crossLoading={crossLoading}
-              />
-              <section className="preview-panel glass-panel">
-                <h3>Composite Preview</h3>
-                {crossResult?.maps ? (
-                  <img
-                    src={`${apiBase}/api/download/file?path=${encodeURIComponent(crossResult.maps.cross_blend_map || Object.values(crossResult.maps)[0])}`}
-                    alt="Composite preview"
-                  />
-                ) : (
-                  <p className="muted">Generate cross-reference maps to preview composite output.</p>
-                )}
-              </section>
-              <LineageGraph slots={slotNodes} crossResult={crossResult} />
-            </section>
+          {activeTab === "Translation" && (
+            <TranslationTab
+              translationOutputs={translationOutputs}
+              apiBase={apiBase}
+              items={items}
+              results={results}
+              slotNodes={slotNodes}
+              crossResult={crossResult}
+              exportFormat={exportFormat}
+              registerGeneratedOutput={registerGeneratedOutput}
+              crossMapA={crossMapA}
+              crossMapB={crossMapB}
+              crossMapC={crossMapC}
+              crossWeightA={crossWeightA}
+              crossWeightB={crossWeightB}
+              crossWeightC={crossWeightC}
+              setCrossMapA={setCrossMapA}
+              setCrossMapB={setCrossMapB}
+              setCrossMapC={setCrossMapC}
+              setCrossWeightA={setCrossWeightA}
+              setCrossWeightB={setCrossWeightB}
+              setCrossWeightC={setCrossWeightC}
+              setSourceSlots={setSourceSlots}
+              runExtraction={runExtraction}
+              runCrossBlend={runCrossBlend}
+              crossLoading={crossLoading}
+              setActiveTab={setActiveTab}
+            />
+          )}
+
+          {activeTab === "Projection" && (
+            <ProjectionTab
+              projectionSurfaces={projectionSurfaces}
+              apiBase={apiBase}
+              results={results}
+              crossResult={crossResult}
+              exportFormat={exportFormat}
+              registerGeneratedOutput={registerGeneratedOutput}
+              slotNodes={slotNodes}
+            />
           )}
 
           {activeTab === "Export" && (
-            <section className="tab-panel">
-              <ExportPanel
-                exportFormat={exportFormat}
-                setExportFormat={setExportFormat}
-                batchZip={batchZip}
-                top3Zip={top3Zip}
-                crossResult={crossResult}
-                promptSummary={promptSummary}
-              />
-            </section>
+            <ExportTab
+              exportFormat={exportFormat}
+              setExportFormat={setExportFormat}
+              batchZip={batchZip}
+              top3Zip={top3Zip}
+              crossResult={crossResult}
+              promptSummary={promptSummary}
+              generatedOutputs={generatedOutputs}
+              selectedOutputId={selectedOutputId}
+              setSelectedOutputId={setSelectedOutputId}
+              results={results}
+              apiBase={apiBase}
+            />
           )}
         </TabWorkspace>
       </main>

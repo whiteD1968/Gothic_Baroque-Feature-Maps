@@ -17,7 +17,7 @@ export default function ComposerBoard({
         {slots.map((slot, idx) => (
           <article key={`slot-${idx}`} className="source-slot">
             <h4>Source {String.fromCharCode(65 + idx)}</h4>
-            {slot ? <p>{slot.result.original_name}</p> : <p className="muted">Drop from Feature Maps</p>}
+            {slot ? <p>{slot.result.original_name}</p> : <p className="muted">Select from Extraction results</p>}
             <label>Map Role</label>
             <select value={slotMaps[idx]} onChange={(e) => setSlotMap(idx, e.target.value)}>
               {BLENDABLE_MAP_KEYS.map((key) => (
