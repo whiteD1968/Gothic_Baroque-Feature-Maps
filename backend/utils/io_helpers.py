@@ -17,5 +17,9 @@ def safe_filename(name: str, keep_dots: bool = False) -> str:
 
 def save_array_image(arr: np.ndarray, output_path: str) -> str:
     ensure_dir(os.path.dirname(output_path))
-    cv2.imwrite(output_path, arr)
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext in [".jpg", ".jpeg"]:
+        cv2.imwrite(output_path, arr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    else:
+        cv2.imwrite(output_path, arr)
     return output_path

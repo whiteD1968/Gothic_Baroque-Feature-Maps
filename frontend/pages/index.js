@@ -1,4 +1,5 @@
 import Head from "next/head";
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -9,6 +10,8 @@ const MAP_KEYS = [
   "flow_map",
   "node_map",
   "density_map",
+  "symmetry_asymmetry_map",
+  "deformation_map",
   "composite_map",
 ];
 const TAGS = ["Gothic", "Baroque", "Mixed", "Custom"];
@@ -18,6 +21,7 @@ const PRESETS = {
   balanced_mixed: { label: "Balanced mixed", edgeLow: 70, edgeHigh: 180, densityKernel: 9 },
   custom: { label: "Custom", edgeLow: null, edgeHigh: null, densityKernel: null },
 };
+const ThreeMapViewer = dynamic(() => import("../components/ThreeMapViewer"), { ssr: false });
 
 function fileToPreview(file) {
   return {
@@ -41,6 +45,7 @@ export default function Home() {
   const [edgeHigh, setEdgeHigh] = useState(180);
   const [densityKernel, setDensityKernel] = useState(9);
   const [preset, setPreset] = useState("balanced_mixed");
+  const [exportFormat, setExportFormat] = useState("jpg");
 
   const canRun = useMemo(() => items.length > 0 && !isLoading, [items, isLoading]);
   const onManualControl = (setter, value) => {
@@ -91,6 +96,7 @@ export default function Home() {
       form.append("edge_threshold_high", String(edgeHigh));
       form.append("density_kernel", String(densityKernel));
       form.append("preset", preset);
+      form.append("export_format", exportFormat);
 
       const response = await fetch(`${API_BASE}/api/process`, {
         method: "POST",
@@ -153,6 +159,13 @@ export default function Home() {
             <label>Density Kernel: {densityKernel}</label>
             <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => onManualControl(setDensityKernel, Number(e.target.value))} />
           </div>
+          <div className="sliderRow">
+            <label>Export Format</label>
+            <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
+              <option value="jpg">JPG</option>
+              <option value="png">PNG</option>
+            </select>
+          </div>
           <button disabled={!canRun} onClick={runExtraction}>{isLoading ? "Processing..." : "Run Feature Extraction"}</button>
         </section>
 
@@ -178,7 +191,7 @@ export default function Home() {
           <h2>Results Panel</h2>
           {batchZip && (
             <a className="zipLink" href={batchZip} target="_blank" rel="noreferrer">
-              Download Batch ZIP
+              Download Batch ZIP ({exportFormat.toUpperCase()})
             </a>
           )}
           {results.map((result, idx) => (
@@ -197,6 +210,10 @@ export default function Home() {
                     </figure>
                   );
                 })}
+              </div>
+              <div className="threePanel">
+                <h4>Three.js Spatial Map Viewer</h4>
+                <ThreeMapViewer maps={result.maps} apiBase={API_BASE} />
               </div>
               <div className="descriptionBlock">
                 <textarea value={result.description} readOnly rows={3} />

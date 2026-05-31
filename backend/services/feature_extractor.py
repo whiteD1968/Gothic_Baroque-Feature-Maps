@@ -27,6 +27,7 @@ class FeatureExtractor:
         density_kernel: int,
         tag: str,
         original_name: str,
+        export_format: str = "png",
     ) -> Dict[str, Any]:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -52,7 +53,8 @@ class FeatureExtractor:
 
         composite = self._composite_map(edge, depth, flow, density_map)
 
-        symmetry_score = self._symmetry(gray_blur)
+        symmetry_score, symmetry_map = self._symmetry_map(gray_blur)
+        deformation_map = self._deformation_map(gray_blur, edge, flow)
 
         stats = FeatureStats(
             edge_ratio=float(np.mean(edge > 0)),
@@ -62,14 +64,17 @@ class FeatureExtractor:
             flow_strength=float(np.mean(mag) / 255.0),
         )
 
+        ext = "jpg" if export_format.lower() in ["jpg", "jpeg"] else "png"
         paths = {
-            "original": save_array_image(bgr, os.path.join(out_dir, "original.png")),
-            "edge_map": save_array_image(edge, os.path.join(out_dir, "edge_map.png")),
-            "shadow_depth_map": save_array_image(depth, os.path.join(out_dir, "shadow_depth_map.png")),
-            "flow_map": save_array_image(flow, os.path.join(out_dir, "flow_map.png")),
-            "node_map": save_array_image(node_map, os.path.join(out_dir, "node_map.png")),
-            "density_map": save_array_image(density_map, os.path.join(out_dir, "density_map.png")),
-            "composite_map": save_array_image(composite, os.path.join(out_dir, "composite_map.png")),
+            "original": save_array_image(bgr, os.path.join(out_dir, f"original.{ext}")),
+            "edge_map": save_array_image(edge, os.path.join(out_dir, f"edge_map.{ext}")),
+            "shadow_depth_map": save_array_image(depth, os.path.join(out_dir, f"shadow_depth_map.{ext}")),
+            "flow_map": save_array_image(flow, os.path.join(out_dir, f"flow_map.{ext}")),
+            "node_map": save_array_image(node_map, os.path.join(out_dir, f"node_map.{ext}")),
+            "density_map": save_array_image(density_map, os.path.join(out_dir, f"density_map.{ext}")),
+            "symmetry_asymmetry_map": save_array_image(symmetry_map, os.path.join(out_dir, f"symmetry_asymmetry_map.{ext}")),
+            "deformation_map": save_array_image(deformation_map, os.path.join(out_dir, f"deformation_map.{ext}")),
+            "composite_map": save_array_image(composite, os.path.join(out_dir, f"composite_map.{ext}")),
         }
 
         description = self._description(stats, tag)
@@ -133,7 +138,7 @@ class FeatureExtractor:
         composite = cv2.addWeighted(composite, 0.80, density_col, 0.25, 0)
         return composite
 
-    def _symmetry(self, gray: np.ndarray) -> float:
+    def _symmetry_map(self, gray: np.ndarray):
         h, w = gray.shape
         mid = w // 2
         left = gray[:, :mid]
@@ -144,7 +149,23 @@ class FeatureExtractor:
             left = left[:, :min_w]
             right_mirror = right_mirror[:, :min_w]
         diff = cv2.absdiff(left, right_mirror)
-        return float(1.0 - (np.mean(diff) / 255.0))
+        diff_norm = cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        map_canvas = np.zeros_like(gray, dtype=np.uint8)
+        map_canvas[:, : left.shape[1]] = diff_norm
+        map_canvas[:, w - left.shape[1] :] = cv2.flip(diff_norm, 1)
+
+        score = float(1.0 - (np.mean(diff) / 255.0))
+        return score, map_canvas
+
+    def _deformation_map(self, gray: np.ndarray, edge: np.ndarray, flow: np.ndarray) -> np.ndarray:
+        blur_large = cv2.GaussianBlur(gray, (0, 0), 5)
+        high_pass = cv2.absdiff(gray, blur_large)
+        flow_gray = cv2.cvtColor(flow, cv2.COLOR_BGR2GRAY)
+        edge_soft = cv2.GaussianBlur(edge, (7, 7), 0)
+        mixed = cv2.addWeighted(high_pass, 0.5, flow_gray, 0.35, 0)
+        mixed = cv2.addWeighted(mixed, 0.85, edge_soft, 0.25, 0)
+        return cv2.normalize(mixed, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
     def _description(self, stats: FeatureStats, tag: str) -> str:
         verticality = "high" if stats.edge_ratio > 0.14 else "moderate"
@@ -153,6 +174,7 @@ class FeatureExtractor:
         symmetry = "pronounced" if stats.symmetry_score > 0.7 else "asymmetric"
         motion = "dynamic curvature" if stats.flow_strength > 0.22 else "measured directional flow"
         return (
-            f"{tag} reference with {verticality} linear thrust, {complexity} ornament concentration, "
-            f"{convergence} node intersections, {symmetry} bilateral symmetry, and {motion}."
+            f"Behavioral extraction (not style imitation): {tag} source with {verticality} vertical thrust, "
+            f"{convergence} node intersections, {complexity} ornament density shifts, {symmetry} symmetry behavior, "
+            f"and {motion}."
         )

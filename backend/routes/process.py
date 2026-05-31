@@ -35,6 +35,7 @@ async def process_images(
     edge_threshold_high: int = Form(180),
     density_kernel: int = Form(9),
     preset: str = Form("custom"),
+    export_format: str = Form("png"),
 ):
     if len(files) != len(tags):
         raise HTTPException(status_code=400, detail="files and tags length must match")
@@ -77,6 +78,7 @@ async def process_images(
             density_kernel=max(3, density_kernel | 1),
             tag=tags[idx],
             original_name=file.filename or input_name,
+            export_format=export_format,
         )
         results.append(processed)
 
@@ -98,6 +100,7 @@ async def process_images(
             "edge_threshold_high": edge_threshold_high,
             "density_kernel": density_kernel,
         },
+        "export_format": "jpg" if export_format in ["jpg", "jpeg"] else "png",
     }
 
 
@@ -117,3 +120,6 @@ def download_zip(zip_name: str):
     if not os.path.exists(zip_path):
         raise HTTPException(status_code=404, detail="Zip not found")
     return FileResponse(zip_path, filename=os.path.basename(zip_path), media_type="application/zip")
+    export_format = (export_format or "png").strip().lower()
+    if export_format not in ["png", "jpg", "jpeg"]:
+        raise HTTPException(status_code=400, detail="Invalid export_format. Use png or jpg.")

@@ -2,6 +2,8 @@
 
 Gothic_Baroque Feature Mapper is a lightweight research tool that treats historical architecture as a database of latent spatial, ornamental, and structural intelligence. Instead of reproducing Gothic or Baroque styles directly, it extracts computational features from precedent images and converts them into abstract analytical maps for AI-assisted design workflows across MidJourney, ComfyUI, Stable Diffusion, and related tools.
 
+The goal is not to use Gothic and Baroque architecture as styles to imitate, but to extract their geometric behaviors and translate them into new material and fabrication logics.
+
 ## Features
 
 - Upload JPG, PNG, and WEBP files (single or batch)
@@ -20,9 +22,13 @@ Gothic_Baroque Feature Mapper is a lightweight research tool that treats histori
   - Flow Map (Sobel directional gradients)
   - Node Map (intersection/corner intensity)
   - Density Map (ornament/contour concentration)
+  - Symmetry / Asymmetry Map (mirrored-half behavior contrast)
+  - Deformation Map (where historical geometric logic mutates)
   - Composite Map (layered abstraction)
 - Side-by-side results panel with map downloads
-- Batch ZIP export for all generated maps
+- Interactive Three.js spatial viewer for generated map sets
+- JPG or PNG export for each map
+- Batch ZIP export for all generated maps in selected format
 - Copyable trait description text for prompting/reference
 - Basic mirrored-half symmetry analysis included in trait metrics
 
