@@ -20,6 +20,8 @@ export default function BlendLabTab(props) {
     setTagB,
     selectionTool,
     setSelectionTool,
+    selectionTarget,
+    setSelectionTarget,
     feather,
     setFeather,
     blendMode,
@@ -83,6 +85,7 @@ export default function BlendLabTab(props) {
             sourceA={sourceA}
             sourceB={sourceB}
             selectionTool={selectionTool}
+            selectionTarget={selectionTarget}
             feather={feather}
             blendMode={blendMode}
             opacity={opacity}
@@ -111,6 +114,8 @@ export default function BlendLabTab(props) {
           <RegionSelector
             selectionTool={selectionTool}
             setSelectionTool={setSelectionTool}
+            selectionTarget={selectionTarget}
+            setSelectionTarget={setSelectionTarget}
             feather={feather}
             setFeather={setFeather}
             onClearSelection={onClearSelection}

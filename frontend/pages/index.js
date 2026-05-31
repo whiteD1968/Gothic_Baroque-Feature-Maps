@@ -74,6 +74,7 @@ export default function Home() {
   const [tagA, setTagA] = useState("Gothic");
   const [tagB, setTagB] = useState("Baroque");
   const [selectionTool, setSelectionTool] = useState("brush mask");
+  const [blendSelectionTarget, setBlendSelectionTarget] = useState("A");
   const [feather, setFeather] = useState(0.2);
   const [blendMode, setBlendMode] = useState("opacity blend");
   const [blendOpacity, setBlendOpacity] = useState(0.5);
@@ -541,6 +542,8 @@ export default function Home() {
               setTagB={setTagB}
               selectionTool={selectionTool}
               setSelectionTool={setSelectionTool}
+              selectionTarget={blendSelectionTarget}
+              setSelectionTarget={setBlendSelectionTarget}
               feather={feather}
               setFeather={setFeather}
               blendMode={blendMode}

@@ -33,10 +33,61 @@ function pointToSegmentDistance(p, a, b) {
   return { d: dist(p, proj), proj };
 }
 
+function cloneImageData(imageData) {
+  return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+}
+
+function applyMaskToImageData(imageData, maskData) {
+  const out = cloneImageData(imageData);
+  for (let i = 0; i < out.data.length; i += 4) {
+    const m = maskData.data[i] / 255;
+    out.data[i + 3] = Math.round(255 * m);
+    if (m === 0) {
+      out.data[i] = 0;
+      out.data[i + 1] = 0;
+      out.data[i + 2] = 0;
+    }
+  }
+  return out;
+}
+
+function transformRegionImageData(regionData, transform) {
+  const src = document.createElement("canvas");
+  src.width = regionData.width;
+  src.height = regionData.height;
+  src.getContext("2d").putImageData(regionData, 0, 0);
+
+  const out = document.createElement("canvas");
+  out.width = regionData.width;
+  out.height = regionData.height;
+  const ctx = out.getContext("2d");
+  ctx.clearRect(0, 0, out.width, out.height);
+  ctx.translate(out.width / 2 + (transform.x || 0), out.height / 2 + (transform.y || 0));
+  ctx.rotate(((transform.rotation || 0) * Math.PI) / 180);
+  const s = transform.scale || 1;
+  ctx.scale(s, s);
+  ctx.translate(-out.width / 2, -out.height / 2);
+  ctx.drawImage(src, 0, 0);
+  return ctx.getImageData(0, 0, out.width, out.height);
+}
+
+function mergeMasks(maskA, maskB) {
+  const out = new ImageData(maskA.width, maskA.height);
+  for (let i = 0; i < out.data.length; i += 4) {
+    const v = Math.max(maskA.data[i], maskB.data[i]);
+    out.data[i] = v;
+    out.data[i + 1] = v;
+    out.data[i + 2] = v;
+    out.data[i + 3] = 255;
+  }
+  return out;
+}
+
 export default function BlendCanvas({
   sourceA,
   sourceB,
   selectionTool,
+  selectionTarget,
   feather,
   blendMode,
   opacity,
@@ -50,19 +101,25 @@ export default function BlendCanvas({
   polygonCloseTick,
 }) {
   const canvasRef = useRef(null);
-  const maskRef = useRef(null);
+  const maskARef = useRef(null);
+  const maskBRef = useRef(null);
   const imgARef = useRef(null);
   const imgBRef = useRef(null);
-  const renderSeq = useRef(0);
 
   const [isDown, setIsDown] = useState(false);
-  const [points, setPoints] = useState([]);
+  const [pointsA, setPointsA] = useState([]);
+  const [pointsB, setPointsB] = useState([]);
   const [start, setStart] = useState(null);
   const [dragNodeIdx, setDragNodeIdx] = useState(-1);
   const [hoverNodeIdx, setHoverNodeIdx] = useState(-1);
 
+  const points = selectionTarget === "A" ? pointsA : pointsB;
+  const setPoints = selectionTarget === "A" ? setPointsA : setPointsB;
+  const activeMaskRef = selectionTarget === "A" ? maskARef : maskBRef;
+
   useEffect(() => {
-    maskRef.current = createMaskCanvas(W, H);
+    maskARef.current = createMaskCanvas(W, H);
+    maskBRef.current = createMaskCanvas(W, H);
   }, []);
 
   const canBlend = useMemo(() => sourceA?.url && sourceB?.url, [sourceA, sourceB]);
@@ -75,20 +132,20 @@ export default function BlendCanvas({
     };
   };
 
-  const drawPolygonOverlay = (ctx) => {
-    if (!points.length) return;
+  const drawPolygonOverlay = (ctx, pts, color) => {
+    if (!pts.length) return;
     ctx.save();
-    ctx.strokeStyle = "rgba(10,132,255,0.95)";
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
-    if (selectionTool === "polygon" && points.length > 2) ctx.lineTo(points[0].x, points[0].y);
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+    if (pts.length > 2) ctx.lineTo(pts[0].x, pts[0].y);
     ctx.stroke();
 
-    for (let i = 0; i < points.length; i += 1) {
-      const p = points[i];
-      ctx.fillStyle = i === hoverNodeIdx ? "rgba(255,255,255,1)" : "rgba(10,132,255,0.95)";
+    for (let i = 0; i < pts.length; i += 1) {
+      const p = pts[i];
+      ctx.fillStyle = i === hoverNodeIdx && selectionTarget === (color.includes("255,120") ? "B" : "A") ? "#fff" : color;
       ctx.strokeStyle = "rgba(15,35,65,0.9)";
       ctx.beginPath();
       ctx.arc(p.x, p.y, HANDLE_RADIUS, 0, Math.PI * 2);
@@ -99,65 +156,74 @@ export default function BlendCanvas({
   };
 
   const rebuild = () => {
-    if (!canBlend || !canvasRef.current || !maskRef.current || !imgARef.current || !imgBRef.current) return;
-    const seq = ++renderSeq.current;
-
+    if (!canBlend || !canvasRef.current || !maskARef.current || !maskBRef.current || !imgARef.current || !imgBRef.current) return;
     const baseA = imageDataFromImage(imgARef.current, W, H);
-    const baseB = imageDataFromImage(imgBRef.current, W, H, transform);
-    const mask = maskFromAlpha(maskRef.current);
+    const baseB = imageDataFromImage(imgBRef.current, W, H);
+
+    const maskA = maskFromAlpha(maskARef.current);
+    const maskB = maskFromAlpha(maskBRef.current);
+
+    const regionA = applyMaskToImageData(baseA, maskA);
+    const regionBRaw = applyMaskToImageData(baseB, maskB);
+    const regionB = transformRegionImageData(regionBRaw, transform);
 
     const isFeatureMode = ["edge-transfer", "density-transfer", "contour fusion", "pattern crossbreed", "field merge", "palette transfer"].includes(blendMode);
-    const blended = isFeatureMode
-      ? blendFeatures(extractFeatureChannels(baseA), extractFeatureChannels(baseB), roleAssignment, featureWeights)
-      : blendImageData(baseA, baseB, mask, blendMode, opacity);
+    const blendedRegion = isFeatureMode
+      ? blendFeatures(extractFeatureChannels(regionA), extractFeatureChannels(regionB), roleAssignment, featureWeights)
+      : blendImageData(regionA, regionB, mergeMasks(maskA, maskB), blendMode, opacity);
 
-    const abstracted = applyAbstraction(blended, "Projection Texture");
+    const finalOut = cloneImageData(baseA);
+    const unionMask = mergeMasks(maskA, maskB);
+    for (let i = 0; i < finalOut.data.length; i += 4) {
+      if (unionMask.data[i] > 0) {
+        finalOut.data[i] = blendedRegion.data[i];
+        finalOut.data[i + 1] = blendedRegion.data[i + 1];
+        finalOut.data[i + 2] = blendedRegion.data[i + 2];
+        finalOut.data[i + 3] = 255;
+      }
+    }
 
-    if (seq !== renderSeq.current) return;
+    const abstracted = applyAbstraction(finalOut, "Projection Texture");
     const ctx = canvasRef.current.getContext("2d");
     ctx.putImageData(abstracted, 0, 0);
-    ctx.globalAlpha = 0.36;
-    ctx.drawImage(maskRef.current, 0, 0);
+    ctx.globalAlpha = 0.24;
+    ctx.drawImage(maskARef.current, 0, 0);
+    ctx.globalAlpha = 0.2;
+    ctx.drawImage(maskBRef.current, 0, 0);
     ctx.globalAlpha = 1;
-    drawPolygonOverlay(ctx);
+    drawPolygonOverlay(ctx, pointsA, "rgba(10,132,255,0.95)");
+    drawPolygonOverlay(ctx, pointsB, "rgba(255,120,20,0.95)");
 
-    onHybridReady?.({ imageData: blended, preview: canvasRef.current.toDataURL("image/png", 0.95) });
+    onHybridReady?.({ imageData: finalOut, preview: canvasRef.current.toDataURL("image/png", 0.95) });
   };
 
   useEffect(() => {
     let cancelled = false;
-    if (!sourceA?.url || !sourceB?.url) {
-      imgARef.current = null;
-      imgBRef.current = null;
-      return;
-    }
-    Promise.all([loadImage(sourceA.url), loadImage(sourceB.url)])
-      .then(([a, b]) => {
-        if (cancelled) return;
-        imgARef.current = a;
-        imgBRef.current = b;
-        rebuild();
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    if (!sourceA?.url || !sourceB?.url) return;
+    Promise.all([loadImage(sourceA.url), loadImage(sourceB.url)]).then(([a, b]) => {
+      if (cancelled) return;
+      imgARef.current = a;
+      imgBRef.current = b;
+      rebuild();
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [sourceA?.url, sourceB?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     rebuild();
-  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, points, hoverNodeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!maskRef.current) return;
-    clearMask(maskRef.current);
-    setPoints([]);
+    if (!activeMaskRef.current) return;
+    clearMask(activeMaskRef.current);
+    if (selectionTarget === "A") setPointsA([]);
+    else setPointsB([]);
     rebuild();
   }, [clearTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!maskRef.current) return;
-    invertMask(maskRef.current);
+    if (!activeMaskRef.current) return;
+    invertMask(activeMaskRef.current);
     rebuild();
   }, [invertTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -165,16 +231,16 @@ export default function BlendCanvas({
     if (!points.length) return;
     const next = points.slice(0, -1);
     setPoints(next);
-    if (maskRef.current) {
-      clearMask(maskRef.current);
-      if (next.length > 2) polygonMask(maskRef.current, next);
+    if (activeMaskRef.current) {
+      clearMask(activeMaskRef.current);
+      if (next.length > 2) polygonMask(activeMaskRef.current, next);
     }
     rebuild();
   }, [polygonUndoTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!maskRef.current || points.length < 3) return;
-    polygonMask(maskRef.current, points);
+    if (!activeMaskRef.current || points.length < 3) return;
+    polygonMask(activeMaskRef.current, points);
     rebuild();
   }, [polygonCloseTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -186,22 +252,22 @@ export default function BlendCanvas({
         if (!points.length) return;
         const next = points.slice(0, -1);
         setPoints(next);
-        if (maskRef.current) {
-          clearMask(maskRef.current);
-          if (next.length > 2) polygonMask(maskRef.current, next);
+        if (activeMaskRef.current) {
+          clearMask(activeMaskRef.current);
+          if (next.length > 2) polygonMask(activeMaskRef.current, next);
         }
         rebuild();
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        if (!maskRef.current || points.length < 3) return;
-        polygonMask(maskRef.current, points);
+        if (!activeMaskRef.current || points.length < 3) return;
+        polygonMask(activeMaskRef.current, points);
         rebuild();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectionTool, points]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectionTool, points, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hitNode = (p) => points.findIndex((n) => dist(n, p) <= HANDLE_RADIUS + 2);
   const hitSegment = (p) => {
@@ -219,7 +285,7 @@ export default function BlendCanvas({
   };
 
   const onDown = (event) => {
-    if (!maskRef.current) return;
+    if (!activeMaskRef.current) return;
     const p = toPoint(event);
     const nodeIdx = hitNode(p);
     if (selectionTool === "polygon" && nodeIdx !== -1) {
@@ -243,14 +309,14 @@ export default function BlendCanvas({
       setPoints((prev) => [...prev, p]);
       return;
     }
-    setPoints([p]);
-    if (selectionTool === "brush mask") paintMask(maskRef.current, [p], 18, false, feather);
-    if (selectionTool === "erase mask") paintMask(maskRef.current, [p], 18, true, feather);
+    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], 18, false, feather);
+    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], 18, true, feather);
+    if (selectionTool === "lasso") setPoints([p]);
     rebuild();
   };
 
   const onMove = (event) => {
-    if (!maskRef.current) return;
+    if (!activeMaskRef.current) return;
     const p = toPoint(event);
     setHoverNodeIdx(hitNode(p));
     if (!isDown) return;
@@ -260,22 +326,26 @@ export default function BlendCanvas({
       return;
     }
 
-    setPoints((prev) => [...prev, p]);
-    if (selectionTool === "brush mask") paintMask(maskRef.current, [p], 18, false, feather);
-    if (selectionTool === "erase mask") paintMask(maskRef.current, [p], 18, true, feather);
-    if (selectionTool === "lasso") polygonMask(maskRef.current, [...points, p]);
+    if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], 18, false, feather);
+    if (selectionTool === "erase mask") paintMask(activeMaskRef.current, [p], 18, true, feather);
+    if (selectionTool === "lasso") {
+      setPoints((prev) => {
+        const next = [...prev, p];
+        polygonMask(activeMaskRef.current, next);
+        return next;
+      });
+    }
     rebuild();
   };
 
   const onUp = (event) => {
-    if (!maskRef.current) return;
+    if (!activeMaskRef.current) return;
     const p = toPoint(event);
     setIsDown(false);
     setDragNodeIdx(-1);
-    if (selectionTool === "rectangular" && start) rectMask(maskRef.current, start, p);
-    if (selectionTool === "lasso") polygonMask(maskRef.current, [...points, p]);
+    if (selectionTool === "rectangular" && start) rectMask(activeMaskRef.current, start, p);
+    if (selectionTool === "lasso") setPoints([]);
     setStart(null);
-    if (selectionTool !== "polygon") setPoints([]);
     rebuild();
   };
 
@@ -291,8 +361,8 @@ export default function BlendCanvas({
         onMouseLeave={() => { setIsDown(false); setDragNodeIdx(-1); }}
       />
       <div className="card-actions">
-        <button type="button" onClick={() => { if (maskRef.current) { clearMask(maskRef.current); setPoints([]); rebuild(); } }}>Clear mask</button>
-        <button type="button" onClick={() => { if (maskRef.current) { invertMask(maskRef.current); rebuild(); } }}>Invert mask</button>
+        <button type="button" onClick={() => { if (activeMaskRef.current) { clearMask(activeMaskRef.current); setPoints([]); rebuild(); } }}>Clear active mask</button>
+        <button type="button" onClick={() => { if (activeMaskRef.current) { invertMask(activeMaskRef.current); rebuild(); } }}>Invert active mask</button>
       </div>
     </div>
   );
