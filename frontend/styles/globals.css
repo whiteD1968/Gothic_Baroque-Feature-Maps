@@ -50,6 +50,19 @@ button, select, textarea {
   padding: 6px 8px;
 }
 button { cursor: pointer; }
+.presetRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.presetRow button {
+  border-color: var(--line);
+}
+.presetRow .activePreset {
+  border-color: var(--ink);
+  background: #e7e1d3;
+}
 
 .thumbGrid, .mapsGrid {
   display: grid;

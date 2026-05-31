@@ -12,6 +12,12 @@ const MAP_KEYS = [
   "composite_map",
 ];
 const TAGS = ["Gothic", "Baroque", "Mixed", "Custom"];
+const PRESETS = {
+  gothic_sensitive: { label: "Gothic-sensitive", edgeLow: 45, edgeHigh: 150, densityKernel: 7 },
+  baroque_dense: { label: "Baroque-dense", edgeLow: 85, edgeHigh: 220, densityKernel: 13 },
+  balanced_mixed: { label: "Balanced mixed", edgeLow: 70, edgeHigh: 180, densityKernel: 9 },
+  custom: { label: "Custom", edgeLow: null, edgeHigh: null, densityKernel: null },
+};
 
 function fileToPreview(file) {
   return {
@@ -34,8 +40,13 @@ export default function Home() {
   const [edgeLow, setEdgeLow] = useState(70);
   const [edgeHigh, setEdgeHigh] = useState(180);
   const [densityKernel, setDensityKernel] = useState(9);
+  const [preset, setPreset] = useState("balanced_mixed");
 
   const canRun = useMemo(() => items.length > 0 && !isLoading, [items, isLoading]);
+  const onManualControl = (setter, value) => {
+    setter(value);
+    if (preset !== "custom") setPreset("custom");
+  };
 
   const onSelectFiles = (event) => {
     const selected = Array.from(event.target.files || []);
@@ -57,6 +68,15 @@ export default function Home() {
     });
   };
 
+  const applyPreset = (presetKey) => {
+    setPreset(presetKey);
+    const config = PRESETS[presetKey];
+    if (!config) return;
+    if (config.edgeLow !== null) setEdgeLow(config.edgeLow);
+    if (config.edgeHigh !== null) setEdgeHigh(config.edgeHigh);
+    if (config.densityKernel !== null) setDensityKernel(config.densityKernel);
+  };
+
   const runExtraction = async () => {
     setIsLoading(true);
     setResults([]);
@@ -70,6 +90,7 @@ export default function Home() {
       form.append("edge_threshold_low", String(edgeLow));
       form.append("edge_threshold_high", String(edgeHigh));
       form.append("density_kernel", String(densityKernel));
+      form.append("preset", preset);
 
       const response = await fetch(`${API_BASE}/api/process`, {
         method: "POST",
@@ -108,17 +129,29 @@ export default function Home() {
 
         <section className="panel controls">
           <h2>Feature Controls</h2>
+          <div className="presetRow">
+            {Object.entries(PRESETS).map(([key, cfg]) => (
+              <button
+                key={key}
+                className={preset === key ? "activePreset" : ""}
+                onClick={() => applyPreset(key)}
+                type="button"
+              >
+                {cfg.label}
+              </button>
+            ))}
+          </div>
           <div className="sliderRow">
             <label>Edge Threshold Low: {edgeLow}</label>
-            <input type="range" min="10" max="200" value={edgeLow} onChange={(e) => setEdgeLow(Number(e.target.value))} />
+            <input type="range" min="10" max="200" value={edgeLow} onChange={(e) => onManualControl(setEdgeLow, Number(e.target.value))} />
           </div>
           <div className="sliderRow">
             <label>Edge Threshold High: {edgeHigh}</label>
-            <input type="range" min="50" max="300" value={edgeHigh} onChange={(e) => setEdgeHigh(Number(e.target.value))} />
+            <input type="range" min="50" max="300" value={edgeHigh} onChange={(e) => onManualControl(setEdgeHigh, Number(e.target.value))} />
           </div>
           <div className="sliderRow">
             <label>Density Kernel: {densityKernel}</label>
-            <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => setDensityKernel(Number(e.target.value))} />
+            <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => onManualControl(setDensityKernel, Number(e.target.value))} />
           </div>
           <button disabled={!canRun} onClick={runExtraction}>{isLoading ? "Processing..." : "Run Feature Extraction"}</button>
         </section>

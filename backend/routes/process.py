@@ -19,6 +19,13 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "public", "outputs")
 ensure_dir(UPLOAD_DIR)
 ensure_dir(OUTPUT_DIR)
 
+PRESETS = {
+    "gothic_sensitive": {"edge_threshold_low": 45, "edge_threshold_high": 150, "density_kernel": 7},
+    "baroque_dense": {"edge_threshold_low": 85, "edge_threshold_high": 220, "density_kernel": 13},
+    "balanced_mixed": {"edge_threshold_low": 70, "edge_threshold_high": 180, "density_kernel": 9},
+    "custom": None,
+}
+
 
 @router.post("/process")
 async def process_images(
@@ -27,9 +34,19 @@ async def process_images(
     edge_threshold_low: int = Form(70),
     edge_threshold_high: int = Form(180),
     density_kernel: int = Form(9),
+    preset: str = Form("custom"),
 ):
     if len(files) != len(tags):
         raise HTTPException(status_code=400, detail="files and tags length must match")
+
+    preset_key = (preset or "custom").strip().lower()
+    if preset_key not in PRESETS:
+        raise HTTPException(status_code=400, detail="Invalid preset")
+    chosen = PRESETS[preset_key]
+    if chosen is not None:
+        edge_threshold_low = chosen["edge_threshold_low"]
+        edge_threshold_high = chosen["edge_threshold_high"]
+        density_kernel = chosen["density_kernel"]
 
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     batch_dir = os.path.join(OUTPUT_DIR, f"batch_{timestamp}")
@@ -75,6 +92,12 @@ async def process_images(
     return {
         "results": results,
         "batch_zip": f"/api/download/zip/{zip_name}",
+        "preset_used": preset_key,
+        "controls_used": {
+            "edge_threshold_low": edge_threshold_low,
+            "edge_threshold_high": edge_threshold_high,
+            "density_kernel": density_kernel,
+        },
     }
 
 

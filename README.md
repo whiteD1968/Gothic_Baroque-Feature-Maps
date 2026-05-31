@@ -8,6 +8,11 @@ Gothic_Baroque Feature Mapper is a lightweight research tool that treats histori
 - Tag each image as Gothic, Baroque, Mixed, or Custom
 - Thumbnail gallery with per-image tag control
 - Adjustable extraction controls for edge thresholds and density kernel
+- One-click preset profiles:
+  - Gothic-sensitive
+  - Baroque-dense
+  - Balanced mixed
+  - Custom
 - Generated maps per image:
   - Original
   - Edge Map (Canny)
