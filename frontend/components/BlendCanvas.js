@@ -51,6 +51,10 @@ export default function BlendCanvas({
 }) {
   const canvasRef = useRef(null);
   const maskRef = useRef(null);
+  const imgARef = useRef(null);
+  const imgBRef = useRef(null);
+  const renderSeq = useRef(0);
+
   const [isDown, setIsDown] = useState(false);
   const [points, setPoints] = useState([]);
   const [start, setStart] = useState(null);
@@ -71,11 +75,8 @@ export default function BlendCanvas({
     };
   };
 
-  const drawPolygonOverlay = () => {
-    if (!canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
+  const drawPolygonOverlay = (ctx) => {
     if (!points.length) return;
-
     ctx.save();
     ctx.strokeStyle = "rgba(10,132,255,0.95)";
     ctx.lineWidth = 2;
@@ -97,11 +98,12 @@ export default function BlendCanvas({
     ctx.restore();
   };
 
-  const rebuild = async () => {
-    if (!canBlend || !canvasRef.current || !maskRef.current) return;
-    const [aImg, bImg] = await Promise.all([loadImage(sourceA.url), loadImage(sourceB.url)]);
-    const baseA = imageDataFromImage(aImg, W, H);
-    const baseB = imageDataFromImage(bImg, W, H, transform);
+  const rebuild = () => {
+    if (!canBlend || !canvasRef.current || !maskRef.current || !imgARef.current || !imgBRef.current) return;
+    const seq = ++renderSeq.current;
+
+    const baseA = imageDataFromImage(imgARef.current, W, H);
+    const baseB = imageDataFromImage(imgBRef.current, W, H, transform);
     const mask = maskFromAlpha(maskRef.current);
 
     const isFeatureMode = ["edge-transfer", "density-transfer", "contour fusion", "pattern crossbreed", "field merge", "palette transfer"].includes(blendMode);
@@ -111,19 +113,40 @@ export default function BlendCanvas({
 
     const abstracted = applyAbstraction(blended, "Projection Texture");
 
+    if (seq !== renderSeq.current) return;
     const ctx = canvasRef.current.getContext("2d");
     ctx.putImageData(abstracted, 0, 0);
-    ctx.globalAlpha = 0.24;
+    ctx.globalAlpha = 0.36;
     ctx.drawImage(maskRef.current, 0, 0);
     ctx.globalAlpha = 1;
-    drawPolygonOverlay();
+    drawPolygonOverlay(ctx);
 
     onHybridReady?.({ imageData: blended, preview: canvasRef.current.toDataURL("image/png", 0.95) });
   };
 
   useEffect(() => {
+    let cancelled = false;
+    if (!sourceA?.url || !sourceB?.url) {
+      imgARef.current = null;
+      imgBRef.current = null;
+      return;
+    }
+    Promise.all([loadImage(sourceA.url), loadImage(sourceB.url)])
+      .then(([a, b]) => {
+        if (cancelled) return;
+        imgARef.current = a;
+        imgBRef.current = b;
+        rebuild();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceA?.url, sourceB?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     rebuild();
-  }, [sourceA?.url, sourceB?.url, blendMode, opacity, feather, transform, roleAssignment, featureWeights, points, hoverNodeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, points, hoverNodeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!maskRef.current) return;
