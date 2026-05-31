@@ -1,61 +1,30 @@
 import Head from "next/head";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Sidebar from "../components/ui/Sidebar";
+import TabWorkspace from "../components/ui/TabWorkspace";
+import UploadZone from "../components/ui/UploadZone";
+import ImageCard from "../components/ui/ImageCard";
+import PresetCard from "../components/ui/PresetCard";
+import ControlCard from "../components/ui/ControlCard";
+import ResultCard from "../components/ui/ResultCard";
+import ComposerBoard from "../components/ui/ComposerBoard";
+import LineageGraph from "../components/ui/LineageGraph";
+import ExportPanel from "../components/ui/ExportPanel";
+import { BLENDABLE_MAP_KEYS, PRESETS, fileToPreview, mapLabel, resultKey } from "../components/ui/constants";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const MAP_KEYS = [
-  "original",
-  "edge_map",
-  "shadow_depth_map",
-  "flow_map",
-  "node_map",
-  "density_map",
-  "symmetry_asymmetry_map",
-  "deformation_map",
-  "composite_map",
-  "palette_quantized_map",
-  "combinator_map",
-];
-const BLENDABLE_MAP_KEYS = [
-  "edge_map",
-  "shadow_depth_map",
-  "flow_map",
-  "node_map",
-  "density_map",
-  "symmetry_asymmetry_map",
-  "deformation_map",
-  "composite_map",
-  "palette_quantized_map",
-];
-const TAGS = ["Gothic", "Baroque", "Mixed", "Custom"];
-const PRESETS = {
-  gothic_sensitive: { label: "Gothic-sensitive", edgeLow: 45, edgeHigh: 150, densityKernel: 7 },
-  baroque_dense: { label: "Baroque-dense", edgeLow: 85, edgeHigh: 220, densityKernel: 13 },
-  balanced_mixed: { label: "Balanced mixed", edgeLow: 70, edgeHigh: 180, densityKernel: 9 },
-  custom: { label: "Custom", edgeLow: null, edgeHigh: null, densityKernel: null },
-};
-function fileToPreview(file) {
-  return {
-    id: `${file.name}-${file.size}-${Math.random().toString(36).slice(2, 8)}`,
-    file,
-    tag: "Gothic",
-    previewUrl: URL.createObjectURL(file),
-  };
-}
-
-function mapLabel(key) {
-  return key.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function cardDomId(key) {
-  return `result-card-${String(key).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
+const ENV_API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const API_CANDIDATES = [ENV_API_BASE, "http://127.0.0.1:8000", "http://localhost:8000"].filter(
+  (value, idx, arr) => Boolean(value) && arr.indexOf(value) === idx,
+);
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState("Library");
   const [items, setItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [batchZip, setBatchZip] = useState("");
   const [top3Zip, setTop3Zip] = useState("");
+
   const [edgeLow, setEdgeLow] = useState(70);
   const [edgeHigh, setEdgeHigh] = useState(180);
   const [densityKernel, setDensityKernel] = useState(9);
@@ -70,8 +39,8 @@ export default function Home() {
   const [blendWeightC, setBlendWeightC] = useState(20);
   const [mutationCount, setMutationCount] = useState(12);
   const [mutationJitter, setMutationJitter] = useState(0.2);
+
   const [sourceSlots, setSourceSlots] = useState([null, null, null]);
-  const [dragResultKey, setDragResultKey] = useState(null);
   const [crossMapA, setCrossMapA] = useState("edge_map");
   const [crossMapB, setCrossMapB] = useState("density_map");
   const [crossMapC, setCrossMapC] = useState("flow_map");
@@ -82,18 +51,24 @@ export default function Home() {
   const [crossTileRepeat, setCrossTileRepeat] = useState(2);
   const [crossResult, setCrossResult] = useState(null);
   const [crossLoading, setCrossLoading] = useState(false);
-  const selectedResultKeys = useMemo(() => sourceSlots.filter(Boolean), [sourceSlots]);
+  const [apiBase, setApiBase] = useState(API_CANDIDATES[0] || "http://127.0.0.1:8000");
+  const [backendStatus, setBackendStatus] = useState({
+    online: false,
+    label: "Checking connection...",
+  });
 
-  const canRun = useMemo(() => items.length > 0 && !isLoading, [items, isLoading]);
-  const onManualControl = (setter, value) => {
-    setter(value);
-    if (preset !== "custom") setPreset("custom");
-  };
+  const [collapsed, setCollapsed] = useState({ detection: false, styling: false, mutation: false });
+  const slotNodes = sourceSlots;
+  const selectedCount = useMemo(() => sourceSlots.filter(Boolean).length, [sourceSlots]);
+
+  const datasetStats = useMemo(() => {
+    const mapCount = results.reduce((sum, result) => sum + Object.keys(result.maps || {}).length, 0);
+    return { images: items.length, maps: mapCount, composites: crossResult ? 1 : 0 };
+  }, [items, results, crossResult]);
 
   const onSelectFiles = (event) => {
     const selected = Array.from(event.target.files || []);
-    const mapped = selected.map(fileToPreview);
-    setItems((prev) => [...prev, ...mapped]);
+    setItems((prev) => [...prev, ...selected.map(fileToPreview)]);
     event.target.value = "";
   };
 
@@ -120,12 +95,14 @@ export default function Home() {
   };
 
   const runExtraction = async (variantRun = false) => {
+    if (!backendStatus.online) {
+      alert(`Backend is offline at ${apiBase}. Start FastAPI on port 8000, then click Retry now.`);
+      return;
+    }
     setIsLoading(true);
     setResults([]);
     setBatchZip("");
     setTop3Zip("");
-    setSourceSlots([null, null, null]);
-    setDragResultKey(null);
     setCrossResult(null);
     try {
       const form = new FormData();
@@ -148,22 +125,20 @@ export default function Home() {
       form.append("mutation_count", String(variantRun ? mutationCount : 1));
       form.append("mutation_jitter", String(mutationJitter));
 
-      const response = await fetch(`${API_BASE}/api/process`, {
-        method: "POST",
-        body: form,
-      });
+      const response = await fetch(`${apiBase}/api/process`, { method: "POST", body: form });
       if (!response.ok) {
         const detail = await response.text();
         throw new Error(`Backend ${response.status}: ${detail || "Request failed"}`);
       }
       const data = await response.json();
       setResults(data.results || []);
-      setBatchZip(`${API_BASE}${data.batch_zip}`);
-      setTop3Zip(data.top3_zip ? `${API_BASE}${data.top3_zip}` : "");
+      setBatchZip(`${apiBase}${data.batch_zip}`);
+      setTop3Zip(data.top3_zip ? `${apiBase}${data.top3_zip}` : "");
+      setActiveTab("Feature Maps");
     } catch (error) {
       const message = String(error?.message || "");
       if (message.includes("Failed to fetch")) {
-        alert(`Cannot reach backend at ${API_BASE}. Start FastAPI on port 8000 or set NEXT_PUBLIC_API_URL.`);
+        alert(`Cannot reach backend at ${apiBase}. Start FastAPI on port 8000 or set NEXT_PUBLIC_API_URL.`);
       } else {
         alert(message || "Processing failed. Check backend server and inputs.");
       }
@@ -172,59 +147,21 @@ export default function Home() {
     }
   };
 
-  const copyDescription = async (text) => {
-    await navigator.clipboard.writeText(text);
-  };
-
-  const resultKey = (result, idx) => `${result.original_name}-${idx}`;
-  const scrollToResultCard = (key) => {
-    const el = document.getElementById(cardDomId(key));
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  const assignSlotByKey = (slotIdx, key) => {
+  const addToComposer = (result, idx) => {
+    const key = resultKey(result, idx);
     setSourceSlots((prev) => {
+      if (prev.some((slot) => slot?.key === key)) return prev;
       const next = [...prev];
-      const existingIdx = next.indexOf(key);
-      if (existingIdx !== -1) next[existingIdx] = null;
-      next[slotIdx] = key;
+      const slotIdx = next.findIndex((value) => !value);
+      if (slotIdx !== -1) next[slotIdx] = { key, result };
       return next;
     });
-  };
-  const addToNextAvailableSlot = (key) => {
-    setSourceSlots((prev) => {
-      if (prev.includes(key)) return prev;
-      const next = [...prev];
-      const openIdx = next.findIndex((x) => !x);
-      if (openIdx === -1) return prev;
-      next[openIdx] = key;
-      return next;
-    });
-  };
-  const clearSourceSlot = (slotIdx) => {
-    setSourceSlots((prev) => {
-      const next = [...prev];
-      next[slotIdx] = null;
-      return next;
-    });
-  };
-  const onDropToSlot = (slotIdx) => {
-    if (!dragResultKey) return;
-    assignSlotByKey(slotIdx, dragResultKey);
-    setDragResultKey(null);
-  };
-  const onDragOverSlot = (event) => {
-    event.preventDefault();
   };
 
   const runCrossBlend = async () => {
-    const resultLookup = Object.fromEntries(
-      results.map((result, idx) => [resultKey(result, idx), { result, idx, key: resultKey(result, idx) }]),
-    );
-    const selected = sourceSlots
-      .map((key) => resultLookup[key])
-      .filter(Boolean);
+    const selected = sourceSlots.filter(Boolean);
     if (selected.length < 2 || selected.length > 3) {
-      alert("Select 2 or 3 result cards first.");
+      alert("Select 2 or 3 sources in Composer first.");
       return;
     }
     const mapKeys = [crossMapA, crossMapB, crossMapC];
@@ -242,7 +179,7 @@ export default function Home() {
     setCrossLoading(true);
     setCrossResult(null);
     try {
-      const response = await fetch(`${API_BASE}/api/cross-blend`, {
+      const response = await fetch(`${apiBase}/api/cross-blend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -258,6 +195,7 @@ export default function Home() {
       }
       const data = await response.json();
       setCrossResult(data);
+      setActiveTab("Export");
     } catch (error) {
       alert(String(error?.message || "Cross-blend failed."));
     } finally {
@@ -265,12 +203,43 @@ export default function Home() {
     }
   };
 
-  const graphLookup = useMemo(
-    () => Object.fromEntries(results.map((result, idx) => [resultKey(result, idx), { result, idx, key: resultKey(result, idx) }])),
-    [results],
-  );
-  const slottedGraphNodes = sourceSlots.map((key) => (key ? graphLookup[key] : null));
-  const graphMapKeys = [crossMapA, crossMapB, crossMapC];
+  const promptSummary = useMemo(() => {
+    if (!results.length) return "No generated prompt summary yet.";
+    const latest = results[0];
+    return latest.midjourney?.full_prompt || latest.description || "Prompt unavailable.";
+  }, [results]);
+
+  const checkBackendHealth = async () => {
+    for (const candidate of API_CANDIDATES) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2500);
+        const response = await fetch(`${candidate}/health`, { cache: "no-store", signal: controller.signal });
+        clearTimeout(timeout);
+        if (!response.ok) continue;
+        setApiBase(candidate);
+        setBackendStatus({
+          online: true,
+          label: `Connected: ${candidate}`,
+        });
+        return;
+      } catch (_error) {
+        // Try next candidate.
+      }
+    }
+    setBackendStatus({
+      online: false,
+      label: "No backend found. Start: npm run dev:backend",
+    });
+  };
+
+  useEffect(() => {
+    checkBackendHealth();
+    const interval = setInterval(checkBackendHealth, 10000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <>
@@ -278,350 +247,183 @@ export default function Home() {
         <title>Gothic_Baroque Feature Mapper</title>
         <meta name="description" content="Gothic / Baroque Feature Extraction Tool" />
       </Head>
-      <main className="page">
-        <section className="panel upload">
-          <h1>Gothic / Baroque Feature Extraction Tool</h1>
-          <p className="sub">Historical image database -&gt; feature extraction -&gt; abstract maps -&gt; AI image references</p>
-          <label className="fileBtn">
-            Upload JPG, PNG, WEBP
-            <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple onChange={onSelectFiles} />
-          </label>
-        </section>
+      <main className="app-shell">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          stats={datasetStats}
+          backendStatus={backendStatus}
+          onRetryBackend={checkBackendHealth}
+        />
 
-        <section className="panel controls">
-          <h2>Feature Controls</h2>
-          <div className="presetRow">
-            {Object.entries(PRESETS).map(([key, cfg]) => (
-              <button
-                key={key}
-                className={preset === key ? "activePreset" : ""}
-                onClick={() => applyPreset(key)}
-                type="button"
-              >
-                {cfg.label}
-              </button>
-            ))}
-          </div>
-          <div className="sliderRow">
-            <label>Edge Threshold Low: {edgeLow}</label>
-            <input type="range" min="10" max="200" value={edgeLow} onChange={(e) => onManualControl(setEdgeLow, Number(e.target.value))} />
-          </div>
-          <div className="sliderRow">
-            <label>Edge Threshold High: {edgeHigh}</label>
-            <input type="range" min="50" max="300" value={edgeHigh} onChange={(e) => onManualControl(setEdgeHigh, Number(e.target.value))} />
-          </div>
-          <div className="sliderRow">
-            <label>Density Kernel: {densityKernel}</label>
-            <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => onManualControl(setDensityKernel, Number(e.target.value))} />
-          </div>
-          <div className="sliderRow">
-            <label>Export Format</label>
-            <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
-              <option value="jpg">JPG</option>
-              <option value="png">PNG</option>
-            </select>
-          </div>
-          <div className="sliderRow">
-            <label>Palette Quantization Colors: {paletteColors}</label>
-            <input type="range" min="3" max="8" step="1" value={paletteColors} onChange={(e) => setPaletteColors(Number(e.target.value))} />
-          </div>
-          <div className="blendGrid">
-            <div className="sliderRow">
-              <label>Combinator Map A</label>
-              <select value={blendA} onChange={(e) => setBlendA(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight A: {blendWeightA}%</label>
-              <input type="range" min="0" max="100" value={blendWeightA} onChange={(e) => setBlendWeightA(Number(e.target.value))} />
-            </div>
-            <div className="sliderRow">
-              <label>Combinator Map B</label>
-              <select value={blendB} onChange={(e) => setBlendB(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight B: {blendWeightB}%</label>
-              <input type="range" min="0" max="100" value={blendWeightB} onChange={(e) => setBlendWeightB(Number(e.target.value))} />
-            </div>
-            <div className="sliderRow">
-              <label>Combinator Map C</label>
-              <select value={blendC} onChange={(e) => setBlendC(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight C: {blendWeightC}%</label>
-              <input type="range" min="0" max="100" value={blendWeightC} onChange={(e) => setBlendWeightC(Number(e.target.value))} />
-            </div>
-          </div>
-          <div className="sliderRow">
-            <label>Variant Count (for mutation run): {mutationCount}</label>
-            <input type="range" min="2" max="30" step="1" value={mutationCount} onChange={(e) => setMutationCount(Number(e.target.value))} />
-          </div>
-          <div className="sliderRow">
-            <label>Mutation Jitter: {mutationJitter.toFixed(2)}</label>
-            <input type="range" min="0" max="1" step="0.05" value={mutationJitter} onChange={(e) => setMutationJitter(Number(e.target.value))} />
-          </div>
-          <div className="presetRow">
-            <button disabled={!canRun} onClick={() => runExtraction(false)}>{isLoading ? "Processing..." : "Run Feature Extraction"}</button>
-            <button disabled={!canRun} onClick={() => runExtraction(true)}>{isLoading ? "Processing..." : `Generate ${mutationCount} Variants`}</button>
-          </div>
-        </section>
-
-        <section className="panel gallery">
-          <h2>Image Gallery</h2>
-          <div className="thumbGrid">
-            {items.map((item) => (
-              <article key={item.id} className="thumbCard">
-                <img src={item.previewUrl} alt={item.file.name} />
-                <div className="thumbMeta">
-                  <span>{item.file.name}</span>
-                  <select value={item.tag} onChange={(e) => updateTag(item.id, e.target.value)}>
-                    {TAGS.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-                  </select>
-                  <button onClick={() => removeItem(item.id)}>Remove</button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel results">
-          <h2>Results Panel</h2>
-          {batchZip && (
-            <div className="presetRow">
-              <a className="zipLink" href={batchZip} target="_blank" rel="noreferrer">
-                Download Batch ZIP ({exportFormat.toUpperCase()})
-              </a>
-              {top3Zip && (
-                <a className="zipLink" href={top3Zip} target="_blank" rel="noreferrer">
-                  Download Top 3 ZIP
-                </a>
-              )}
-            </div>
-          )}
-          {results.map((result, idx) => (
-            <article
-              id={cardDomId(resultKey(result, idx))}
-              className={`resultCard ${result.variant?.is_top3 ? "topRank" : ""}`}
-              key={`${result.original_name}-${idx}`}
-              draggable
-              onDragStart={() => setDragResultKey(resultKey(result, idx))}
-              onDragEnd={() => setDragResultKey(null)}
-            >
-              <header>
-                <h3>{result.original_name} ({result.tag})</h3>
-                <div className="pickLabel">
-                  <button type="button" onClick={() => addToNextAvailableSlot(resultKey(result, idx))}>
-                    Add To Source Slots
-                  </button>
-                  <span>
-                    {sourceSlots.includes(resultKey(result, idx))
-                      ? `In Slot #${sourceSlots.indexOf(resultKey(result, idx)) + 1}`
-                      : "Not Slotted"}
-                  </span>
-                </div>
-                {result.variant && (
-                  <p className="sub">
-                    Rank #{result.variant.rank}/{result.variant.variant_count} | Score {result.variant.fitness_score}
-                    {result.variant.is_top3 ? " | Top 3" : ""}
-                    {result.variant.is_base ? " | Base" : ""}
-                    {" | "}Edge {result.variant.edge_threshold_low}/{result.variant.edge_threshold_high}
-                    {" | "}Density {result.variant.density_kernel}
-                    {" | "}Palette {result.variant.palette_colors}
-                    {" | "}Weights {result.variant.blend_weight_a}/{result.variant.blend_weight_b}/{result.variant.blend_weight_c}
-                  </p>
-                )}
-              </header>
-              <div className="mapsGrid">
-                {[...MAP_KEYS, ...Object.keys(result.maps || {}).filter((key) => !MAP_KEYS.includes(key))].filter((key) => Boolean(result.maps?.[key])).map((key) => {
-                  const fullPath = `${API_BASE}/api/download/file?path=${encodeURIComponent(result.maps[key])}`;
-                  return (
-                    <figure key={key}>
-                      <img src={fullPath} alt={key} />
-                      <figcaption>{mapLabel(key)}</figcaption>
-                      <a href={fullPath} target="_blank" rel="noreferrer">Download</a>
-                    </figure>
-                  );
-                })}
-              </div>
-              <div className="descriptionBlock">
-                <textarea value={result.description} readOnly rows={3} />
-                <button onClick={() => copyDescription(result.description)}>Copy Trait Description</button>
-              </div>
-              {result.midjourney && (
-                <div className="descriptionBlock">
-                  <h4>Midjourney Prompt Export</h4>
-                  <textarea value={result.midjourney.short_prompt} readOnly rows={2} />
-                  <button onClick={() => copyDescription(result.midjourney.short_prompt)}>Copy Short Prompt</button>
-                  <textarea value={result.midjourney.long_prompt} readOnly rows={4} />
-                  <button onClick={() => copyDescription(result.midjourney.long_prompt)}>Copy Long Prompt</button>
-                  <textarea value={result.midjourney.params} readOnly rows={2} />
-                  <button onClick={() => copyDescription(result.midjourney.params)}>Copy Params</button>
-                  <textarea value={result.midjourney.full_prompt} readOnly rows={5} />
-                  <button onClick={() => copyDescription(result.midjourney.full_prompt)}>Copy Full Prompt</button>
-                </div>
-              )}
-            </article>
-          ))}
-        </section>
-
-        <section className="panel results">
-          <h2>Cross-Reference Composer</h2>
-          <p className="sub">
-            Select 2-3 result cards above, then assign map roles and generate a new cross-referenced image set.
-          </p>
-          <div className="blendGrid">
-            <div className="sliderRow">
-              <label>Selected #1 Map</label>
-              <select value={crossMapA} onChange={(e) => setCrossMapA(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight #1: {crossWeightA}%</label>
-              <input type="range" min="0" max="100" value={crossWeightA} onChange={(e) => setCrossWeightA(Number(e.target.value))} />
-            </div>
-            <div className="sliderRow">
-              <label>Selected #2 Map</label>
-              <select value={crossMapB} onChange={(e) => setCrossMapB(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight #2: {crossWeightB}%</label>
-              <input type="range" min="0" max="100" value={crossWeightB} onChange={(e) => setCrossWeightB(Number(e.target.value))} />
-            </div>
-            <div className="sliderRow">
-              <label>Selected #3 Map (used when 3 items selected)</label>
-              <select value={crossMapC} onChange={(e) => setCrossMapC(e.target.value)}>
-                {BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-              </select>
-              <label>Weight #3: {crossWeightC}%</label>
-              <input type="range" min="0" max="100" value={crossWeightC} onChange={(e) => setCrossWeightC(Number(e.target.value))} />
-            </div>
-          </div>
-          <div className="blendGrid">
-            <div className="sliderRow">
-              <label>Cross Palette Colors: {crossPaletteColors}</label>
-              <input type="range" min="3" max="8" step="1" value={crossPaletteColors} onChange={(e) => setCrossPaletteColors(Number(e.target.value))} />
-            </div>
-            <div className="sliderRow">
-              <label>Tile Repeat: {crossTileRepeat}</label>
-              <input type="range" min="2" max="4" step="1" value={crossTileRepeat} onChange={(e) => setCrossTileRepeat(Number(e.target.value))} />
-            </div>
-          </div>
-          <button onClick={runCrossBlend} disabled={crossLoading || selectedResultKeys.length < 2 || selectedResultKeys.length > 3}>
-            {crossLoading ? "Generating..." : "Generate Cross-Reference Maps"}
-          </button>
-
-          <div className="graphPanel">
-            <h4>Lineage Graph</h4>
-            <div className="dropSlots">
-              {[0, 1, 2].map((slotIdx) => {
-                const node = slottedGraphNodes[slotIdx];
-                return (
-                  <div
-                    key={`slot-${slotIdx}`}
-                    className={`dropSlot ${node ? "filledSlot" : ""}`}
-                    onDragOver={onDragOverSlot}
-                    onDrop={() => onDropToSlot(slotIdx)}
-                  >
-                    <div className="graphTitle">Source Slot #{slotIdx + 1}</div>
-                    {node ? (
-                      <>
-                        {node.result?.maps?.original && (
-                          <img
-                            className="slotThumb"
-                            src={`${API_BASE}/api/download/file?path=${encodeURIComponent(node.result.maps.original)}`}
-                            alt={`${node.result.original_name} preview`}
-                          />
-                        )}
-                        <div className="graphText">{node.result.original_name}</div>
-                        <div className="graphText">{mapLabel(graphMapKeys[slotIdx] || crossMapA)}</div>
-                        <button type="button" onClick={() => clearSourceSlot(slotIdx)}>Remove</button>
-                      </>
-                    ) : (
-                      <div className="graphHint">Drag a result card here</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="graphRow">
-              {selectedResultKeys.length === 0 && (
-                <div className="graphHint">Select 2-3 result cards above to build a cross-reference lineage.</div>
-              )}
-              {slottedGraphNodes.filter(Boolean).map((node, i) => (
-                <button
-                  key={node.key}
-                  className="graphNode sourceNode"
-                  type="button"
-                  onClick={() => scrollToResultCard(node.key)}
-                  title="Jump to source result card"
-                >
-                  <div className="graphTitle">Source #{i + 1}</div>
-                  <div className="graphText">{node.result.original_name}</div>
-                  <div className="graphText">{mapLabel(graphMapKeys[i] || crossMapA)}</div>
+        <TabWorkspace activeTab={activeTab}>
+          {activeTab === "Library" && (
+            <section className="tab-panel">
+              <section className="intro-copy glass-panel">
+                <h2>Feature Extraction + Graphic Translation Lab</h2>
+                <p>
+                  This tool treats historical architecture as a database of latent spatial, ornamental, and structural
+                  features. It extracts architectural intelligence from Gothic and Baroque precedents and translates
+                  those features into abstract visual references for AI-assisted design, digital spolia, computational
+                  craft, and material fabrication workflows.
+                </p>
+              </section>
+              <UploadZone onSelectFiles={onSelectFiles} />
+              <div className="panel-head">
+                <h2>Library</h2>
+                <button type="button" onClick={() => runExtraction(false)} disabled={!items.length || isLoading || !backendStatus.online}>
+                  {isLoading ? "Analyzing..." : "Analyze Library"}
                 </button>
-              ))}
-            </div>
-            {selectedResultKeys.length > 0 && (
-              <div className="graphFlow">+</div>
-            )}
-            {selectedResultKeys.length > 0 && (
-              <div className="graphRow">
-                <div className="graphNode blendNode">
-                  <div className="graphTitle">Cross-Blend Node</div>
-                  <div className="graphText">Palette: {crossPaletteColors} colors</div>
-                  <div className="graphText">Tile: {crossTileRepeat}x</div>
-                  <div className="graphText">Weights: {crossWeightA}/{crossWeightB}/{crossWeightC}</div>
-                </div>
               </div>
-            )}
-            {crossResult && (
-              <>
-                <div className="graphArrow">↓</div>
-                <div className="graphRow">
-                  <div className="graphNode outputNode">
-                    <div className="graphTitle">Generated References</div>
-                    <div className="graphText">Cross Blend Map</div>
-                    <div className="graphText">Quantized Pattern Map</div>
-                    <div className="graphText">Tiled Pattern Map</div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {crossResult && (
-            <div className="descriptionBlock">
-              {crossResult.zip && (
-                <a className="zipLink" href={`${API_BASE}${crossResult.zip}`} target="_blank" rel="noreferrer">
-                  Download Cross-Blend ZIP
-                </a>
-              )}
-              <div className="mapsGrid">
-                {Object.keys(crossResult.maps || {}).map((key) => {
-                  const fullPath = `${API_BASE}/api/download/file?path=${encodeURIComponent(crossResult.maps[key])}`;
-                  return (
-                    <figure key={key}>
-                      <img src={fullPath} alt={key} />
-                      <figcaption>{mapLabel(key)}</figcaption>
-                      <a href={fullPath} target="_blank" rel="noreferrer">Download</a>
-                    </figure>
-                  );
-                })}
+              <div className="gallery-grid">
+                {items.map((item) => (
+                  <ImageCard
+                    key={item.id}
+                    item={item}
+                    onTagChange={updateTag}
+                    onRemove={removeItem}
+                    onAnalyze={() => runExtraction(false)}
+                    analyzeDisabled={!backendStatus.online || isLoading}
+                    onView={() => window.open(item.previewUrl, "_blank", "noopener,noreferrer")}
+                  />
+                ))}
               </div>
-              {crossResult.midjourney && (
-                <div className="descriptionBlock">
-                  <h4>Cross-Blend Midjourney Prompt Export</h4>
-                  <textarea value={crossResult.midjourney.short_prompt} readOnly rows={2} />
-                  <button onClick={() => copyDescription(crossResult.midjourney.short_prompt)}>Copy Short Prompt</button>
-                  <textarea value={crossResult.midjourney.long_prompt} readOnly rows={4} />
-                  <button onClick={() => copyDescription(crossResult.midjourney.long_prompt)}>Copy Long Prompt</button>
-                  <textarea value={crossResult.midjourney.params} readOnly rows={2} />
-                  <button onClick={() => copyDescription(crossResult.midjourney.params)}>Copy Params</button>
-                  <textarea value={crossResult.midjourney.full_prompt} readOnly rows={5} />
-                  <button onClick={() => copyDescription(crossResult.midjourney.full_prompt)}>Copy Full Prompt</button>
-                </div>
-              )}
-            </div>
+            </section>
           )}
-        </section>
+
+          {activeTab === "Feature Maps" && (
+            <section className="tab-panel">
+              <div className="preset-grid">
+                {Object.entries(PRESETS).map(([key, cfg]) => (
+                  <PresetCard
+                    key={key}
+                    title={cfg.label}
+                    subtitle={`Low ${cfg.edgeLow ?? "-"} / High ${cfg.edgeHigh ?? "-"}`}
+                    active={preset === key}
+                    onClick={() => applyPreset(key)}
+                  />
+                ))}
+              </div>
+              <div className="panel-head">
+                <h3>Selected for Composer: {selectedCount} / 3</h3>
+                <button type="button" onClick={() => setActiveTab("Composer")} disabled={!selectedCount}>
+                  Open Composer
+                </button>
+              </div>
+
+              <div className="controls-grid">
+                <ControlCard
+                  title="Detection Settings"
+                  collapsed={collapsed.detection}
+                  onToggle={() => setCollapsed((prev) => ({ ...prev, detection: !prev.detection }))}
+                >
+                  <label>Edge Low {edgeLow}</label>
+                  <input type="range" min="10" max="200" value={edgeLow} onChange={(e) => { setEdgeLow(Number(e.target.value)); setPreset("custom"); }} />
+                  <label>Edge High {edgeHigh}</label>
+                  <input type="range" min="50" max="300" value={edgeHigh} onChange={(e) => { setEdgeHigh(Number(e.target.value)); setPreset("custom"); }} />
+                  <label>Density Kernel {densityKernel}</label>
+                  <input type="range" min="3" max="21" step="2" value={densityKernel} onChange={(e) => { setDensityKernel(Number(e.target.value)); setPreset("custom"); }} />
+                </ControlCard>
+
+                <ControlCard
+                  title="Map Styling"
+                  collapsed={collapsed.styling}
+                  onToggle={() => setCollapsed((prev) => ({ ...prev, styling: !prev.styling }))}
+                >
+                  <label>Palette Colors {paletteColors}</label>
+                  <input type="range" min="3" max="8" value={paletteColors} onChange={(e) => setPaletteColors(Number(e.target.value))} />
+                  <label>Blend A</label>
+                  <select value={blendA} onChange={(e) => setBlendA(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
+                  <label>Blend B</label>
+                  <select value={blendB} onChange={(e) => setBlendB(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
+                  <label>Blend C</label>
+                  <select value={blendC} onChange={(e) => setBlendC(e.target.value)}>{BLENDABLE_MAP_KEYS.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
+                </ControlCard>
+
+                <ControlCard
+                  title="Mutation"
+                  collapsed={collapsed.mutation}
+                  onToggle={() => setCollapsed((prev) => ({ ...prev, mutation: !prev.mutation }))}
+                >
+                  <label>Weight A {blendWeightA}%</label>
+                  <input type="range" min="0" max="100" value={blendWeightA} onChange={(e) => setBlendWeightA(Number(e.target.value))} />
+                  <label>Weight B {blendWeightB}%</label>
+                  <input type="range" min="0" max="100" value={blendWeightB} onChange={(e) => setBlendWeightB(Number(e.target.value))} />
+                  <label>Weight C {blendWeightC}%</label>
+                  <input type="range" min="0" max="100" value={blendWeightC} onChange={(e) => setBlendWeightC(Number(e.target.value))} />
+                  <label>Mutation Count {mutationCount}</label>
+                  <input type="range" min="2" max="30" value={mutationCount} onChange={(e) => setMutationCount(Number(e.target.value))} />
+                  <label>Mutation Jitter {mutationJitter.toFixed(2)}</label>
+                  <input type="range" min="0" max="1" step="0.05" value={mutationJitter} onChange={(e) => setMutationJitter(Number(e.target.value))} />
+                  <button type="button" onClick={() => runExtraction(true)} disabled={!items.length || isLoading || !backendStatus.online}>
+                    {isLoading ? "Processing..." : "Generate Variants"}
+                  </button>
+                </ControlCard>
+              </div>
+
+              <div className="result-grid">
+                {results.map((result, idx) => (
+                  <ResultCard
+                    key={resultKey(result, idx)}
+                    result={result}
+                    title={result.original_name}
+                    apiBase={apiBase}
+                    onSendToComposer={() => addToComposer(result, idx)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {activeTab === "Composer" && (
+            <section className="tab-panel">
+              <ComposerBoard
+                slots={slotNodes}
+                slotMaps={[crossMapA, crossMapB, crossMapC]}
+                slotWeights={[crossWeightA, crossWeightB, crossWeightC]}
+                setSlotMap={(idx, value) => {
+                  if (idx === 0) setCrossMapA(value);
+                  if (idx === 1) setCrossMapB(value);
+                  if (idx === 2) setCrossMapC(value);
+                }}
+                setSlotWeight={(idx, value) => {
+                  if (idx === 0) setCrossWeightA(value);
+                  if (idx === 1) setCrossWeightB(value);
+                  if (idx === 2) setCrossWeightC(value);
+                }}
+                onClearSlot={(idx) => setSourceSlots((prev) => prev.map((value, i) => (i === idx ? null : value)))}
+                onGenerateVariants={() => runExtraction(true)}
+                onCrossReference={runCrossBlend}
+                crossLoading={crossLoading}
+              />
+              <section className="preview-panel glass-panel">
+                <h3>Composite Preview</h3>
+                {crossResult?.maps ? (
+                  <img
+                    src={`${apiBase}/api/download/file?path=${encodeURIComponent(crossResult.maps.cross_blend_map || Object.values(crossResult.maps)[0])}`}
+                    alt="Composite preview"
+                  />
+                ) : (
+                  <p className="muted">Generate cross-reference maps to preview composite output.</p>
+                )}
+              </section>
+              <LineageGraph slots={slotNodes} crossResult={crossResult} />
+            </section>
+          )}
+
+          {activeTab === "Export" && (
+            <section className="tab-panel">
+              <ExportPanel
+                exportFormat={exportFormat}
+                setExportFormat={setExportFormat}
+                batchZip={batchZip}
+                top3Zip={top3Zip}
+                crossResult={crossResult}
+                promptSummary={promptSummary}
+              />
+            </section>
+          )}
+        </TabWorkspace>
       </main>
     </>
   );
