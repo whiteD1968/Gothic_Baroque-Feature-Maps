@@ -701,6 +701,21 @@ pre {
   gap: 8px;
 }
 
+.blend-near-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.blend-near-toolbar .inspector-card {
+  padding: 8px;
+}
+
+.blend-near-toolbar .field-row {
+  margin-bottom: 8px;
+}
+
 .blend-canvas-wrap canvas {
   width: 100%;
   height: auto;
@@ -764,6 +779,7 @@ pre {
   .translation-grid { grid-template-columns: 1fr; }
   .workspace-lab { grid-template-columns: 1fr; }
   .blend-lab-workspace { grid-template-columns: 1fr; }
+  .blend-near-toolbar { grid-template-columns: 1fr; }
   .archive-stack .image-card { grid-template-columns: 1fr; }
   .lineage-dock { grid-column: auto; }
 }

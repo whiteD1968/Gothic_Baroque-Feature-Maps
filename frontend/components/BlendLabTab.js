@@ -81,6 +81,32 @@ export default function BlendLabTab(props) {
 
         <div className="blend-col canvas-col">
           <h4>Blend Canvas / Live Preview</h4>
+          <section className="blend-near-toolbar">
+            <RegionSelector
+              selectionTool={selectionTool}
+              setSelectionTool={setSelectionTool}
+              selectionTarget={selectionTarget}
+              setSelectionTarget={setSelectionTarget}
+              feather={feather}
+              setFeather={setFeather}
+              onClearSelection={onClearSelection}
+              onInvertSelection={onInvertSelection}
+              onUndoPolygonNode={onUndoPolygonNode}
+              onClosePolygon={onClosePolygon}
+              transform={transform}
+              setTransform={setTransform}
+            />
+            <BlendModeControls
+              blendMode={blendMode}
+              setBlendMode={setBlendMode}
+              opacity={opacity}
+              setOpacity={setOpacity}
+              preset={preset}
+              applyPreset={applyPreset}
+              abstractionMode={abstractionMode}
+              setAbstractionMode={setAbstractionMode}
+            />
+          </section>
           <BlendCanvas
             sourceA={sourceA}
             sourceB={sourceB}
@@ -111,21 +137,6 @@ export default function BlendLabTab(props) {
 
       <section className="glass-panel blend-lab-inspector">
         <div className="blend-inspector-grid">
-          <RegionSelector
-            selectionTool={selectionTool}
-            setSelectionTool={setSelectionTool}
-            selectionTarget={selectionTarget}
-            setSelectionTarget={setSelectionTarget}
-            feather={feather}
-            setFeather={setFeather}
-            onClearSelection={onClearSelection}
-            onInvertSelection={onInvertSelection}
-            onUndoPolygonNode={onUndoPolygonNode}
-            onClosePolygon={onClosePolygon}
-            transform={transform}
-            setTransform={setTransform}
-          />
-          <BlendModeControls blendMode={blendMode} setBlendMode={setBlendMode} opacity={opacity} setOpacity={setOpacity} preset={preset} applyPreset={applyPreset} abstractionMode={abstractionMode} setAbstractionMode={setAbstractionMode} />
           <FeatureBlendPanel roleAssignment={roleAssignment} setRoleAssignment={setRoleAssignment} featureWeights={featureWeights} setFeatureWeights={setFeatureWeights} />
           <MutationGrid mutationCount={mutationCount} setMutationCount={setMutationCount} mutations={mutations} onGenerateMutations={onGenerateMutations} />
           <GrasshopperExportPanel onExport={onExport} contourSimplify={contourSimplify} setContourSimplify={setContourSimplify} />

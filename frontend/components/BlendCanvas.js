@@ -213,6 +213,21 @@ export default function BlendCanvas({
     rebuild();
   }, [blendMode, opacity, feather, transform, roleAssignment, featureWeights, pointsA, pointsB, hoverNodeIdx, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep polygon masks in sync with node edits so dragging/inserting points updates the actual selected region.
+  useEffect(() => {
+    if (!maskARef.current || !maskBRef.current) return;
+    if (selectionTool !== "polygon") return;
+
+    if (selectionTarget === "A") {
+      clearMask(maskARef.current);
+      if (pointsA.length > 2) polygonMask(maskARef.current, pointsA);
+    } else {
+      clearMask(maskBRef.current);
+      if (pointsB.length > 2) polygonMask(maskBRef.current, pointsB);
+    }
+    rebuild();
+  }, [pointsA, pointsB, selectionTool, selectionTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!activeMaskRef.current) return;
     clearMask(activeMaskRef.current);
@@ -306,7 +321,13 @@ export default function BlendCanvas({
     setIsDown(true);
     setStart(p);
     if (selectionTool === "polygon") {
-      setPoints((prev) => [...prev, p]);
+      setPoints((prev) => {
+        const next = [...prev, p];
+        clearMask(activeMaskRef.current);
+        if (next.length > 2) polygonMask(activeMaskRef.current, next);
+        return next;
+      });
+      rebuild();
       return;
     }
     if (selectionTool === "brush mask") paintMask(activeMaskRef.current, [p], 18, false, feather);
@@ -322,7 +343,13 @@ export default function BlendCanvas({
     if (!isDown) return;
 
     if (selectionTool === "polygon" && dragNodeIdx !== -1) {
-      setPoints((prev) => prev.map((pt, idx) => (idx === dragNodeIdx ? p : pt)));
+      setPoints((prev) => {
+        const next = prev.map((pt, idx) => (idx === dragNodeIdx ? p : pt));
+        clearMask(activeMaskRef.current);
+        if (next.length > 2) polygonMask(activeMaskRef.current, next);
+        return next;
+      });
+      rebuild();
       return;
     }
 
