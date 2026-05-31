@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+﻿import { useMemo, useRef, useState } from "react";
 import { MAP_KEYS, mapLabel } from "./constants";
+import CanvasInspectorShell from "./CanvasInspectorShell";
 
 const GEOMETRIES = [
   "flat tile",
@@ -8,6 +9,16 @@ const GEOMETRIES = [
   "column fragment",
   "stereotomic block",
   "minimal surface patch placeholder",
+];
+const GRAPHIC_STYLES = [
+  "Monochrome Ink",
+  "Soft Diagram",
+  "Editorial Atlas",
+  "Technical Drawing",
+  "Pastel Field",
+  "Lithic Texture",
+  "High Contrast Plate",
+  "AI Reference Board",
 ];
 
 function clamp(value, min, max) {
@@ -106,7 +117,30 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
   const [perspectiveDistortion, setPerspectiveDistortion] = useState(0.4);
   const [colorQuantization, setColorQuantization] = useState(6);
   const [smoothing, setSmoothing] = useState(true);
+  const [graphicStyle, setGraphicStyle] = useState("Editorial Atlas");
   const [error, setError] = useState("");
+
+  const applyGraphicStyleFrame = (canvas, styleName, label) => {
+    const styled = document.createElement("canvas");
+    styled.width = canvas.width;
+    styled.height = canvas.height;
+    const sctx = styled.getContext("2d");
+    sctx.fillStyle = styleName === "Pastel Field" ? "#f4efe8" : "#f7f6f2";
+    sctx.fillRect(0, 0, styled.width, styled.height);
+    sctx.shadowColor = "rgba(0,0,0,0.14)";
+    sctx.shadowBlur = 22;
+    sctx.shadowOffsetY = 10;
+    sctx.drawImage(canvas, 26, 26, styled.width - 52, styled.height - 90);
+    sctx.shadowColor = "transparent";
+    sctx.strokeStyle = "rgba(0,0,0,0.2)";
+    sctx.strokeRect(26, 26, styled.width - 52, styled.height - 90);
+    sctx.fillStyle = "rgba(255,255,255,0.86)";
+    sctx.fillRect(26, styled.height - 62, styled.width - 52, 36);
+    sctx.fillStyle = "#222";
+    sctx.font = "600 14px -apple-system, BlinkMacSystemFont, sans-serif";
+    sctx.fillText(`${styleName} · ${label}`, 38, styled.height - 39);
+    return styled;
+  };
 
   const selectedResult = useMemo(() => results[resultIndex] || results[0] || null, [results, resultIndex]);
 
@@ -118,54 +152,29 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
     ctx.fillStyle = "#efeee9";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     setError("");
-
     if (!selectedResult) {
       setError("Run Extraction first.");
       return;
     }
-
-    const source = mapKey === "cross_tiled_pattern_map" || mapKey === "cross_blend_map"
-      ? crossResult?.maps?.[mapKey]
-      : selectedResult?.maps?.[mapKey];
+    const source = mapKey.startsWith("cross_") ? crossResult?.maps?.[mapKey] : selectedResult?.maps?.[mapKey];
     if (!source) {
       setError("Selected texture map is unavailable.");
       return;
     }
-
     const srcUrl = mapKey.startsWith("cross_")
       ? `${apiBase}/api/download/file?path=${encodeURIComponent(source)}`
       : textureUrl(apiBase, selectedResult, mapKey);
 
     try {
       const texture = await loadImage(srcUrl);
-      const prepared = applyTextureTransform(ctx, texture, {
-        uvScale,
-        uvRotation,
-        mirrorX,
-        mirrorY,
-        repeatCount,
-        opacity,
-        colorQuantization,
-        smoothing,
-      });
+      const prepared = applyTextureTransform(ctx, texture, { uvScale, uvRotation, mirrorX, mirrorY, repeatCount, opacity, colorQuantization, smoothing });
       ctx.imageSmoothingEnabled = !!smoothing;
       const d = perspectiveDistortion * 180;
-
-      if (geometry === "flat tile") {
-        ctx.drawImage(prepared, 110, 110, 580, 580);
-      }
-
+      if (geometry === "flat tile") ctx.drawImage(prepared, 110, 110, 580, 580);
       if (geometry === "folded tile") {
-        drawWarpedStrip(ctx, prepared, {
-          tl: { x: 90, y: 120 + d * 0.1 }, tr: { x: 370, y: 80 },
-          bl: { x: 120, y: 620 }, br: { x: 390, y: 590 - d * 0.2 },
-        });
-        drawWarpedStrip(ctx, prepared, {
-          tl: { x: 370, y: 80 }, tr: { x: 700, y: 140 + d * 0.1 },
-          bl: { x: 390, y: 590 - d * 0.2 }, br: { x: 680, y: 640 },
-        });
+        drawWarpedStrip(ctx, prepared, { tl: { x: 90, y: 120 + d * 0.1 }, tr: { x: 370, y: 80 }, bl: { x: 120, y: 620 }, br: { x: 390, y: 590 - d * 0.2 } });
+        drawWarpedStrip(ctx, prepared, { tl: { x: 370, y: 80 }, tr: { x: 700, y: 140 + d * 0.1 }, bl: { x: 390, y: 590 - d * 0.2 }, br: { x: 680, y: 640 } });
       }
-
       if (geometry === "vault patch") {
         ctx.save();
         ctx.beginPath();
@@ -176,7 +185,6 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
         ctx.drawImage(prepared, 120, 80, 560, 580);
         ctx.restore();
       }
-
       if (geometry === "column fragment") {
         ctx.save();
         ctx.beginPath();
@@ -184,48 +192,24 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
         ctx.clip();
         ctx.drawImage(prepared, 170 - d * 0.2, 90, 460 + d * 0.4, 620);
         ctx.restore();
-        const grad = ctx.createLinearGradient(170, 0, 630, 0);
-        grad.addColorStop(0, "rgba(0,0,0,0.32)");
-        grad.addColorStop(0.32, "rgba(255,255,255,0.12)");
-        grad.addColorStop(0.67, "rgba(0,0,0,0.08)");
-        grad.addColorStop(1, "rgba(0,0,0,0.34)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(170, 90, 460, 620);
       }
-
       if (geometry === "stereotomic block") {
-        drawWarpedStrip(ctx, prepared, {
-          tl: { x: 180, y: 250 }, tr: { x: 520, y: 250 },
-          bl: { x: 180, y: 610 }, br: { x: 520, y: 610 },
-        });
-        drawWarpedStrip(ctx, prepared, {
-          tl: { x: 180, y: 250 }, tr: { x: 290 + d * 0.4, y: 170 - d * 0.3 },
-          bl: { x: 520, y: 250 }, br: { x: 630 + d * 0.4, y: 170 - d * 0.3 },
-        });
-        drawWarpedStrip(ctx, prepared, {
-          tl: { x: 520, y: 250 }, tr: { x: 630 + d * 0.4, y: 170 - d * 0.3 },
-          bl: { x: 520, y: 610 }, br: { x: 630 + d * 0.4, y: 530 - d * 0.3 },
-        });
+        drawWarpedStrip(ctx, prepared, { tl: { x: 180, y: 250 }, tr: { x: 520, y: 250 }, bl: { x: 180, y: 610 }, br: { x: 520, y: 610 } });
       }
-
       if (geometry === "minimal surface patch placeholder") {
         for (let i = 0; i < 22; i += 1) {
           const t = i / 22;
           const y = 120 + t * 520;
           const wave = Math.sin(t * Math.PI * 2) * (40 + d * 0.25);
           drawWarpedStrip(ctx, prepared, {
-            tl: { x: 120 + wave * 0.3, y },
-            tr: { x: 680 - wave * 0.3, y: y + wave * 0.2 },
-            bl: { x: 150 - wave * 0.2, y: y + 24 },
-            br: { x: 650 + wave * 0.2, y: y + 24 },
+            tl: { x: 120 + wave * 0.3, y }, tr: { x: 680 - wave * 0.3, y: y + wave * 0.2 }, bl: { x: 150 - wave * 0.2, y: y + 24 }, br: { x: 650 + wave * 0.2, y: y + 24 },
           }, 6);
         }
       }
-
-      ctx.fillStyle = "rgba(0,0,0,0.62)";
-      ctx.font = "500 14px Arial";
-      ctx.fillText("Projection preview: image analysis -> architectural artifact", 18, 26);
-      const url = canvas.toDataURL(exportFormat === "jpg" ? "image/jpeg" : "image/png", 0.95);
+      const styledCanvas = applyGraphicStyleFrame(canvas, graphicStyle, geometry);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(styledCanvas, 0, 0, canvas.width, canvas.height);
+      const url = styledCanvas.toDataURL(exportFormat === "jpg" ? "image/jpeg" : "image/png", 0.95);
       onRegisterOutput?.({
         kind: "projection",
         title: `Projection - ${geometry}`,
@@ -235,35 +219,12 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
           source_tag: selectedResult?.tag || "Custom",
           selected_feature_maps: [mapKey],
           translation_mode: "Architectural Projection",
-          transformation_settings: {
-            geometry,
-            uv_scale: uvScale,
-            uv_rotation: uvRotation,
-            mirror_x: mirrorX,
-            mirror_y: mirrorY,
-            repeat_count: repeatCount,
-            opacity,
-            perspective_distortion: perspectiveDistortion,
-            color_quantization: colorQuantization,
-            smoothing,
-          },
-          feature_weights: {
-            blend_weight_a: selectedResult?.variant?.blend_weight_a ?? null,
-            blend_weight_b: selectedResult?.variant?.blend_weight_b ?? null,
-            blend_weight_c: selectedResult?.variant?.blend_weight_c ?? null,
-            fitness_components: selectedResult?.variant?.fitness_components || {},
-          },
+          transformation_settings: { geometry, uv_scale: uvScale, uv_rotation: uvRotation, mirror_x: mirrorX, mirror_y: mirrorY, repeat_count: repeatCount, opacity, perspective_distortion: perspectiveDistortion, color_quantization: colorQuantization, smoothing, graphic_style: graphicStyle },
+          feature_weights: { blend_weight_a: selectedResult?.variant?.blend_weight_a ?? null, blend_weight_b: selectedResult?.variant?.blend_weight_b ?? null, blend_weight_c: selectedResult?.variant?.blend_weight_c ?? null, fitness_components: selectedResult?.variant?.fitness_components || {} },
           mutation_seed: null,
           export_type: exportFormat,
-          generated_prompt_summary:
-            crossResult?.midjourney?.full_prompt || selectedResult?.midjourney?.full_prompt || selectedResult?.description || "",
-          lineage: {
-            source_image: selectedResult?.original_name || "Unknown",
-            feature_extraction: mapLabel(mapKey),
-            graphic_translation: "Selected abstract output",
-            ai_reference: crossResult?.maps ? "Cross/Composite Reference" : "Prompt Pack",
-            architectural_projection: geometry,
-          },
+          generated_prompt_summary: crossResult?.midjourney?.full_prompt || selectedResult?.midjourney?.full_prompt || selectedResult?.description || "",
+          lineage: { source_image: selectedResult?.original_name || "Unknown", feature_extraction: mapLabel(mapKey), graphic_translation: "Selected abstract output", ai_reference: crossResult?.maps ? "Cross/Composite Reference" : "Prompt Pack", architectural_projection: geometry },
         },
       });
     } catch (err) {
@@ -278,43 +239,59 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
   return (
     <section className="glass-panel projection-lab">
       <h3>Projection Mode</h3>
-      <div className="translation-grid">
-        <label>Geometry</label>
-        <select value={geometry} onChange={(e) => setGeometry(e.target.value)}>
-          {GEOMETRIES.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <label>Source Result</label>
-        <select value={resultIndex} onChange={(e) => setResultIndex(Number(e.target.value))}>
-          {results.map((r, i) => <option key={`${r.original_name}-${i}`} value={i}>{r.original_name}</option>)}
-        </select>
-        <label>Abstract Output</label>
-        <select value={mapKey} onChange={(e) => setMapKey(e.target.value)}>
-          {mapOptions.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-        </select>
-      </div>
-
-      <details className="inspector-drawer">
-        <summary>Projection Inspector</summary>
-        <div className="translation-grid compact">
-          <label>UV Scale</label><input type="range" min="0.2" max="3" step="0.1" value={uvScale} onChange={(e) => setUvScale(Number(e.target.value))} />
-          <label>UV Rotation</label><input type="range" min="-180" max="180" value={uvRotation} onChange={(e) => setUvRotation(Number(e.target.value))} />
-          <label>Mirror X</label><input type="checkbox" checked={mirrorX} onChange={(e) => setMirrorX(e.target.checked)} />
-          <label>Mirror Y</label><input type="checkbox" checked={mirrorY} onChange={(e) => setMirrorY(e.target.checked)} />
-          <label>Repeat Count</label><input type="range" min="1" max="10" value={repeatCount} onChange={(e) => setRepeatCount(Number(e.target.value))} />
-          <label>Opacity</label><input type="range" min="0.05" max="1" step="0.05" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
-          <label>Perspective Distortion</label><input type="range" min="0" max="1" step="0.05" value={perspectiveDistortion} onChange={(e) => setPerspectiveDistortion(Number(e.target.value))} />
-          <label>Color Quantization</label><input type="range" min="2" max="12" value={colorQuantization} onChange={(e) => setColorQuantization(Number(e.target.value))} />
-          <label>Smoothing</label><input type="checkbox" checked={smoothing} onChange={(e) => setSmoothing(e.target.checked)} />
-        </div>
-      </details>
-
-      <div className="card-actions">
-        <button type="button" onClick={draw} disabled={!results.length}>Render Projection</button>
-      </div>
-      {error ? <p className="muted">{error}</p> : null}
-      <div className="projection-canvas-wrap">
-        <canvas ref={canvasRef} width="800" height="760" />
-      </div>
+      <CanvasInspectorShell
+        className="projection-workspace"
+        header={(
+          <header className="workspace-head">
+            <h3>Projection Canvas</h3>
+            <p className="muted">{geometry} · {mapLabel(mapKey)} · {graphicStyle}</p>
+          </header>
+        )}
+        main={(
+          <>
+            {error ? <p className="muted">{error}</p> : null}
+            <div className="projection-canvas-wrap"><canvas ref={canvasRef} width="800" height="760" /></div>
+          </>
+        )}
+        inspector={(
+          <>
+            <h4>Inspector</h4>
+            <details className="inspector-drawer" open>
+              <summary>Source</summary>
+              <div className="translation-grid compact">
+                <label>Geometry</label><select value={geometry} onChange={(e) => setGeometry(e.target.value)}>{GEOMETRIES.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+                <label>Source Result</label><select value={resultIndex} onChange={(e) => setResultIndex(Number(e.target.value))}>{results.map((r, i) => <option key={`${r.original_name}-${i}`} value={i}>{r.original_name}</option>)}</select>
+                <label>Abstract Output</label><select value={mapKey} onChange={(e) => setMapKey(e.target.value)}>{mapOptions.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
+              </div>
+            </details>
+            <details className="inspector-drawer" open>
+              <summary>Graphic Style</summary>
+              <div className="translation-grid compact">
+                <label>Style Preset</label><select value={graphicStyle} onChange={(e) => setGraphicStyle(e.target.value)}>{GRAPHIC_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}</select>
+              </div>
+            </details>
+            <details className="inspector-drawer" open>
+              <summary>Advanced Controls</summary>
+              <div className="translation-grid compact">
+                <label>UV Scale</label><input type="range" min="0.2" max="3" step="0.1" value={uvScale} onChange={(e) => setUvScale(Number(e.target.value))} />
+                <label>UV Rotation</label><input type="range" min="-180" max="180" value={uvRotation} onChange={(e) => setUvRotation(Number(e.target.value))} />
+                <label>Mirror X</label><input type="checkbox" checked={mirrorX} onChange={(e) => setMirrorX(e.target.checked)} />
+                <label>Mirror Y</label><input type="checkbox" checked={mirrorY} onChange={(e) => setMirrorY(e.target.checked)} />
+                <label>Repeat Count</label><input type="range" min="1" max="10" value={repeatCount} onChange={(e) => setRepeatCount(Number(e.target.value))} />
+                <label>Opacity</label><input type="range" min="0.05" max="1" step="0.05" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
+                <label>Perspective Distortion</label><input type="range" min="0" max="1" step="0.05" value={perspectiveDistortion} onChange={(e) => setPerspectiveDistortion(Number(e.target.value))} />
+                <label>Color Quantization</label><input type="range" min="2" max="12" value={colorQuantization} onChange={(e) => setColorQuantization(Number(e.target.value))} />
+                <label>Smoothing</label><input type="checkbox" checked={smoothing} onChange={(e) => setSmoothing(e.target.checked)} />
+              </div>
+            </details>
+            <details className="inspector-drawer">
+              <summary>Actions</summary>
+              <div className="card-actions"><button type="button" onClick={draw} disabled={!results.length}>Render Projection</button></div>
+            </details>
+          </>
+        )}
+      />
     </section>
   );
 }
+

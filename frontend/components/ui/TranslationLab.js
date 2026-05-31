@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { MAP_KEYS, mapLabel } from "./constants";
+import CanvasInspectorShell from "./CanvasInspectorShell";
 
 const MODES = [
   "Taxonomy / Lineage Board",
@@ -7,6 +8,16 @@ const MODES = [
   "Pattern Mutation Sheet",
   "Field Condition Map",
   "MidJourney Reference Board",
+];
+const GRAPHIC_STYLES = [
+  "Monochrome Ink",
+  "Soft Diagram",
+  "Editorial Atlas",
+  "Technical Drawing",
+  "Pastel Field",
+  "Lithic Texture",
+  "High Contrast Plate",
+  "AI Reference Board",
 ];
 
 const TRANSLATION_PRESETS = {
@@ -192,6 +203,7 @@ export default function TranslationLab({
 
   const [boardLayout, setBoardLayout] = useState("atlas");
   const [hideLabels, setHideLabels] = useState(false);
+  const [graphicStyle, setGraphicStyle] = useState("Editorial Atlas");
 
   const resolvedResult = useMemo(() => results[selectedResult] || results[0] || null, [results, selectedResult]);
 
@@ -603,6 +615,50 @@ export default function TranslationLab({
     return board;
   };
 
+  const applyGraphicStyle = (canvas) => {
+    const styled = document.createElement("canvas");
+    styled.width = canvas.width;
+    styled.height = canvas.height;
+    const ctx = styled.getContext("2d");
+    ctx.fillStyle = graphicStyle === "Pastel Field" ? "#f4efe8" : "#f7f6f2";
+    ctx.fillRect(0, 0, styled.width, styled.height);
+    ctx.shadowColor = "rgba(0,0,0,0.14)";
+    ctx.shadowBlur = 26;
+    ctx.shadowOffsetY = 10;
+    ctx.drawImage(canvas, 26, 26, styled.width - 52, styled.height - 90);
+    ctx.shadowColor = "transparent";
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(26, 26, styled.width - 52, styled.height - 90);
+    ctx.fillStyle = "rgba(255,255,255,0.86)";
+    ctx.fillRect(26, styled.height - 62, styled.width - 52, 36);
+    ctx.fillStyle = "#222";
+    ctx.font = "600 14px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText(`${graphicStyle} · ${mode}`, 38, styled.height - 39);
+    if (graphicStyle === "High Contrast Plate" || graphicStyle === "Technical Drawing") {
+      const img = ctx.getImageData(0, 0, styled.width, styled.height);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const v = (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
+        const c = graphicStyle === "High Contrast Plate" ? (v > 140 ? 245 : 20) : Math.round(v / 24) * 24;
+        img.data[i] = c; img.data[i + 1] = c; img.data[i + 2] = c;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+    if (graphicStyle === "Pastel Field" || graphicStyle === "Soft Diagram") {
+      ctx.globalCompositeOperation = "multiply";
+      ctx.fillStyle = graphicStyle === "Pastel Field" ? "rgba(255,160,120,0.18)" : "rgba(120,170,255,0.14)";
+      ctx.fillRect(0, 0, styled.width, styled.height);
+      ctx.globalCompositeOperation = "source-over";
+    }
+    if (graphicStyle === "Lithic Texture") {
+      for (let i = 0; i < 26000; i += 1) {
+        ctx.fillStyle = Math.random() > 0.5 ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)";
+        ctx.fillRect(Math.random() * styled.width, Math.random() * styled.height, 1, 1);
+      }
+    }
+    return styled;
+  };
+
   const generateOutput = async () => {
     if (!resolvedResult) {
       setRenderError("Run Extraction first to generate translation outputs.");
@@ -617,7 +673,8 @@ export default function TranslationLab({
       if (mode === MODES[2]) canvas = await renderMutationSheet();
       if (mode === MODES[3]) canvas = await renderFieldCondition();
       if (mode === MODES[4]) canvas = await renderMidjourneyBoard();
-      const url = canvas.toDataURL(exportFormat === "jpg" ? "image/jpeg" : "image/png", 0.95);
+      const styledCanvas = applyGraphicStyle(canvas);
+      const url = styledCanvas.toDataURL(exportFormat === "jpg" ? "image/jpeg" : "image/png", 0.95);
       setOutputUrl(url);
       const result = resolvedResult || {};
       const promptSummary = crossResult?.midjourney?.full_prompt || result?.midjourney?.full_prompt || result?.description || "";
@@ -648,6 +705,7 @@ export default function TranslationLab({
         hide_labels: hideLabels,
         labels_enabled: !hideLabels,
         metadata_enabled: true,
+        graphic_style: graphicStyle,
       };
       onRegisterOutput?.({
         kind: "translation",
@@ -700,74 +758,82 @@ export default function TranslationLab({
           </button>
         ))}
       </div>
-      <section className="workspace-lab translation-workspace">
-        <div className="workspace-main">
+      <CanvasInspectorShell
+        className="translation-workspace"
+        header={(
           <header className="workspace-head">
             <h3>{resolvedResult?.original_name || "No source selected"}</h3>
             <p className="muted">Mode: {mode} · Map: {mapLabel(selectedMap)}</p>
           </header>
-          <section className="workspace-canvas">
-            {outputUrl ? (
-              <img src={outputUrl} alt={mode} />
-            ) : resolvedResult?.maps?.[selectedMap] ? (
-              <img src={mapUrl(apiBase, resolvedResult, selectedMap)} alt={selectedMap} />
-            ) : (
-              <p className="muted">Generate a mode output to preview the translation plate.</p>
-            )}
-          </section>
-          <section className="workspace-map-strip">
-            {MAP_KEYS.filter((key) => key !== "original").slice(0, 8).map((key) => {
-              const src = mapUrl(apiBase, resolvedResult, key);
-              if (!src) return null;
-              return (
-                <button key={key} type="button" className={selectedMap === key ? "map-chip active" : "map-chip"} onClick={() => setSelectedMap(key)}>
-                  <img src={src} alt={key} />
-                  <span>{mapLabel(key)}</span>
+        )}
+        main={(
+          <>
+            <section className="workspace-canvas">
+              {outputUrl ? (
+                <img src={outputUrl} alt={mode} />
+              ) : resolvedResult?.maps?.[selectedMap] ? (
+                <img src={mapUrl(apiBase, resolvedResult, selectedMap)} alt={selectedMap} />
+              ) : (
+                <p className="muted">Generate a mode output to preview the translation plate.</p>
+              )}
+            </section>
+            <section className="workspace-map-strip">
+              {MAP_KEYS.filter((key) => key !== "original").slice(0, 8).map((key) => {
+                const src = mapUrl(apiBase, resolvedResult, key);
+                if (!src) return null;
+                return (
+                  <button key={key} type="button" className={selectedMap === key ? "map-chip active" : "map-chip"} onClick={() => setSelectedMap(key)}>
+                    <img src={src} alt={key} />
+                    <span>{mapLabel(key)}</span>
+                  </button>
+                );
+              })}
+            </section>
+            <section className="workspace-variant-strip">
+              {results.slice(0, 12).map((r, idx) => (
+                <button key={`${r.original_name}-${idx}`} type="button" className={selectedResult === idx ? "variant-tile active" : "variant-tile"} onClick={() => setSelectedResult(idx)}>
+                  <img src={mapUrl(apiBase, r, "composite_map") || mapUrl(apiBase, r, "edge_map")} alt={r.original_name} />
+                  <span>Variant {r?.variant?.index || idx + 1}</span>
                 </button>
-              );
-            })}
-          </section>
-          <section className="workspace-variant-strip">
-            {results.slice(0, 12).map((r, idx) => (
-              <button key={`${r.original_name}-${idx}`} type="button" className={selectedResult === idx ? "variant-tile active" : "variant-tile"} onClick={() => setSelectedResult(idx)}>
-                <img src={mapUrl(apiBase, r, "composite_map") || mapUrl(apiBase, r, "edge_map")} alt={r.original_name} />
-                <span>Variant {r?.variant?.index || idx + 1}</span>
-              </button>
-            ))}
-          </section>
-        </div>
-        <aside className="workspace-inspector">
-          <h4>Inspector</h4>
-          <div className="field-row">
-            <label>Mode</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              {MODES.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-          <div className="field-row">
-            <label>Result Source</label>
-            <select value={selectedResult} onChange={(e) => setSelectedResult(Number(e.target.value))}>
-              {results.map((r, idx) => <option key={`${r.original_name}-${idx}`} value={idx}>{r.original_name}</option>)}
-            </select>
-          </div>
-          <div className="field-row">
-            <label>Feature Map</label>
-            <select value={selectedMap} onChange={(e) => setSelectedMap(e.target.value)}>
-              {MAP_KEYS.filter((key) => key !== "original").map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
-            </select>
-          </div>
-          <div className="card-actions">
-            <button type="button" onClick={generateOutput} disabled={isRendering || !results.length}>
-              {isRendering ? "Rendering..." : "Generate Translation Output"}
-            </button>
-            {outputUrl ? (
-              <a href={outputUrl} download={`translation-${mode.toLowerCase().replaceAll(" ", "-")}.${exportFormat}`}>
-                Download Output
-              </a>
-            ) : null}
-          </div>
-          <details className="inspector-drawer">
-            <summary>Translation Inspector</summary>
+              ))}
+            </section>
+          </>
+        )}
+        inspector={(
+          <>
+            <h4>Inspector</h4>
+            <details className="inspector-drawer" open>
+              <summary>Source & Mode</summary>
+              <div className="field-row">
+                <label>Mode</label>
+                <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                  {MODES.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
+              <div className="field-row">
+                <label>Result Source</label>
+                <select value={selectedResult} onChange={(e) => setSelectedResult(Number(e.target.value))}>
+                  {results.map((r, idx) => <option key={`${r.original_name}-${idx}`} value={idx}>{r.original_name}</option>)}
+                </select>
+              </div>
+              <div className="field-row">
+                <label>Feature Map</label>
+                <select value={selectedMap} onChange={(e) => setSelectedMap(e.target.value)}>
+                  {MAP_KEYS.filter((key) => key !== "original").map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}
+                </select>
+              </div>
+            </details>
+            <details className="inspector-drawer" open>
+              <summary>Graphic Style</summary>
+              <div className="field-row">
+                <label>Style Preset</label>
+                <select value={graphicStyle} onChange={(e) => setGraphicStyle(e.target.value)}>
+                  {GRAPHIC_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
+                </select>
+              </div>
+            </details>
+            <details className="inspector-drawer">
+              <summary>Advanced Controls</summary>
       {mode === MODES[1] && (
         <div className="translation-grid compact">
           <label>Line Thickness</label><input type="range" min="0.5" max="3.5" step="0.1" value={lineThickness} onChange={(e) => setLineThickness(Number(e.target.value))} />
@@ -825,9 +891,23 @@ export default function TranslationLab({
           <label>Hide Labels</label><input type="checkbox" checked={hideLabels} onChange={(e) => setHideLabels(e.target.checked)} />
         </div>
       )}
-          </details>
-        </aside>
-      </section>
+            </details>
+            <details className="inspector-drawer" open>
+              <summary>Actions</summary>
+              <div className="card-actions">
+                <button type="button" onClick={generateOutput} disabled={isRendering || !results.length}>
+                  {isRendering ? "Rendering..." : "Generate Translation Output"}
+                </button>
+                {outputUrl ? (
+                  <a href={outputUrl} download={`translation-${mode.toLowerCase().replaceAll(" ", "-")}.${exportFormat}`}>
+                    Download Output
+                  </a>
+                ) : null}
+              </div>
+            </details>
+          </>
+        )}
+      />
       {renderError ? <p className="muted">{renderError}</p> : null}
       <p className="muted">Selected composer sources: {sourceSlots.filter(Boolean).length} / 3</p>
     </section>

@@ -10,12 +10,30 @@ export default function ComposerBoard({
   onGenerateVariants,
   onCrossReference,
   crossLoading,
+  onReorderSlots,
 }) {
+  const onDragStart = (event, idx) => {
+    event.dataTransfer.setData("text/plain", String(idx));
+  };
+  const onDrop = (event, idx) => {
+    event.preventDefault();
+    const from = Number(event.dataTransfer.getData("text/plain"));
+    if (Number.isNaN(from) || from === idx) return;
+    onReorderSlots?.(from, idx);
+  };
+
   return (
     <section className="composer-board glass-panel">
       <div className="sources-grid">
         {slots.map((slot, idx) => (
-          <article key={`slot-${idx}`} className="source-slot">
+          <article
+            key={`slot-${idx}`}
+            className="source-slot"
+            draggable
+            onDragStart={(event) => onDragStart(event, idx)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onDrop(event, idx)}
+          >
             <h4>Source {String.fromCharCode(65 + idx)}</h4>
             {slot ? <p>{slot.result.original_name}</p> : <p className="muted">Select from Extraction results</p>}
             <label>Map Role</label>

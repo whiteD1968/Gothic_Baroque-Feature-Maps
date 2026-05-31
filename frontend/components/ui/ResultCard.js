@@ -18,7 +18,11 @@ export default function ResultCard({ result, title, apiBase, onSendToComposer })
       </header>
       {firstMap ? (
         <div className="result-featured">
-          <img src={`${apiBase}/api/download/file?path=${encodeURIComponent(firstMap)}`} alt="Featured map" />
+          <img
+            src={`${apiBase}/api/download/file?path=${encodeURIComponent(firstMap)}`}
+            alt="Featured map"
+            onClick={() => window.open(`${apiBase}/api/download/file?path=${encodeURIComponent(firstMap)}`, "_blank", "noopener,noreferrer")}
+          />
         </div>
       ) : null}
       <div className="result-preview-grid">
@@ -26,7 +30,7 @@ export default function ResultCard({ result, title, apiBase, onSendToComposer })
           const url = `${apiBase}/api/download/file?path=${encodeURIComponent(value)}`;
           return (
             <figure key={key}>
-              <img src={url} alt={key} />
+              <img src={url} alt={key} onClick={() => window.open(url, "_blank", "noopener,noreferrer")} />
               <figcaption className="micro-label">{mapLabel(key)}</figcaption>
             </figure>
           );

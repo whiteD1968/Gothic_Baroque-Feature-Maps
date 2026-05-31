@@ -7,6 +7,7 @@ import ExtractionTab from "../components/ExtractionTab";
 import TranslationTab from "../components/TranslationTab";
 import ProjectionTab from "../components/ProjectionTab";
 import ExportTab from "../components/ExportTab";
+import LineageGraph from "../components/LineageGraph";
 import { BLENDABLE_MAP_KEYS, PRESETS, fileToPreview, mapLabel, resultKey } from "../components/ui/constants";
 import { buildOutputRecord } from "../lib/exportUtils";
 
@@ -80,6 +81,10 @@ export default function Home() {
     const mapCount = results.reduce((sum, result) => sum + Object.keys(result.maps || {}).length, 0);
     return { images: items.length, maps: mapCount, composites: crossResult ? 1 : generatedOutputs.length };
   }, [items, results, crossResult, generatedOutputs.length]);
+  const dockLineage = useMemo(() => {
+    const selected = generatedOutputs.find((item) => item.id === selectedOutputId) || generatedOutputs[0] || null;
+    return selected?.metadata?.lineage || null;
+  }, [generatedOutputs, selectedOutputId]);
 
   const registerGeneratedOutput = (payload) => {
     const output = buildOutputRecord(payload);
@@ -179,6 +184,24 @@ export default function Home() {
       if (slotIdx !== -1) next[slotIdx] = { key, result };
       return next;
     });
+  };
+
+  const sendArchiveItemToTranslation = (item) => {
+    if (!results.length) {
+      alert("Analyze Archive first, then send images to Translation.");
+      return;
+    }
+    const normalizedItemName = String(item?.file?.name || "").toLowerCase();
+    const matchIdx = results.findIndex((result) => {
+      const original = String(result?.original_name || "").toLowerCase();
+      return original === normalizedItemName || original.includes(normalizedItemName) || normalizedItemName.includes(original);
+    });
+    if (matchIdx === -1) {
+      alert(`No extracted result found yet for "${item?.file?.name || "selected image"}". Re-run Analyze Archive if needed.`);
+      return;
+    }
+    addToComposer(results[matchIdx], matchIdx);
+    setActiveTab("Translation");
   };
 
   const runCrossBlend = async () => {
@@ -289,6 +312,8 @@ export default function Home() {
               backendOnline={backendStatus.online}
               updateTag={updateTag}
               removeItem={removeItem}
+              onSendArchiveItemToTranslation={sendArchiveItemToTranslation}
+              hasResults={results.length > 0}
             />
           )}
 
@@ -394,6 +419,9 @@ export default function Home() {
             />
           )}
         </TabWorkspace>
+        <section className="lineage-dock glass-panel">
+          <LineageGraph slots={slotNodes} crossResult={crossResult} lineage={dockLineage} />
+        </section>
       </main>
     </>
   );

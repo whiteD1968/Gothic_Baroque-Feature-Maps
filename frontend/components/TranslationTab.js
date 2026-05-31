@@ -60,6 +60,15 @@ export default function TranslationTab(props) {
           if (idx === 2) setCrossWeightC(value);
         }}
         onClearSlot={(idx) => setSourceSlots((prev) => prev.map((value, i) => (i === idx ? null : value)))}
+        onReorderSlots={(from, to) => {
+          setSourceSlots((prev) => {
+            const next = [...prev];
+            const temp = next[from];
+            next[from] = next[to];
+            next[to] = temp;
+            return next;
+          });
+        }}
         onGenerateVariants={() => runExtraction(true)}
         onCrossReference={runCrossBlend}
         crossLoading={crossLoading}
@@ -71,4 +80,3 @@ export default function TranslationTab(props) {
     </section>
   );
 }
-

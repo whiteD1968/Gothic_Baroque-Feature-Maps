@@ -1,6 +1,15 @@
 import { TAGS } from "./constants";
 
-export default function ImageCard({ item, onTagChange, onRemove, onAnalyze, onView, analyzeDisabled }) {
+export default function ImageCard({
+  item,
+  onTagChange,
+  onRemove,
+  onAnalyze,
+  onView,
+  analyzeDisabled,
+  onSendToTranslation,
+  sendDisabled,
+}) {
   return (
     <article className="image-card">
       <img src={item.previewUrl} alt={item.file.name} />
@@ -20,6 +29,7 @@ export default function ImageCard({ item, onTagChange, onRemove, onAnalyze, onVi
         </div>
         <div className="card-actions">
           <button type="button" onClick={onAnalyze} disabled={analyzeDisabled}>Analyze</button>
+          <button type="button" onClick={onSendToTranslation} disabled={sendDisabled}>Send to Translation</button>
           <button type="button" className="quiet" onClick={onView}>View</button>
           <button type="button" className="quiet" onClick={() => onRemove(item.id)}>Remove</button>
         </div>
