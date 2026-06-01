@@ -15,10 +15,31 @@ export default function ArchiveTab({
 }) {
   const [archiveView, setArchiveView] = useState("Board");
   const [tagFilter, setTagFilter] = useState("All");
+  const [collection, setCollection] = useState("All Images");
   const tags = ["All", "Gothic", "Baroque", "Mixed", "Custom"];
+  const collections = ["All Images", "Gothic Cluster", "Baroque Cluster", "Mixed Cluster", "Duplicates"];
+  const duplicateKeys = useMemo(() => {
+    const counts = new Map();
+    items.forEach((item) => {
+      const key = `${item.file?.name || ""}-${item.file?.size || 0}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [items]);
   const visibleItems = useMemo(
-    () => items.filter((item) => tagFilter === "All" || item.tag === tagFilter),
-    [items, tagFilter],
+    () => items.filter((item) => {
+      if (tagFilter !== "All" && item.tag !== tagFilter) return false;
+      if (collection === "All Images") return true;
+      if (collection === "Gothic Cluster") return item.tag === "Gothic";
+      if (collection === "Baroque Cluster") return item.tag === "Baroque";
+      if (collection === "Mixed Cluster") return item.tag === "Mixed";
+      if (collection === "Duplicates") {
+        const key = `${item.file?.name || ""}-${item.file?.size || 0}`;
+        return (duplicateKeys.get(key) || 0) > 1;
+      }
+      return true;
+    }),
+    [items, tagFilter, collection, duplicateKeys],
   );
 
   return (
@@ -40,6 +61,17 @@ export default function ArchiveTab({
         <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
           {tags.map((tag) => <option key={tag}>{tag}</option>)}
         </select>
+        <label>Collection</label>
+        <select value={collection} onChange={(e) => setCollection(e.target.value)}>
+          {collections.map((name) => <option key={name}>{name}</option>)}
+        </select>
+        <button
+          type="button"
+          onClick={() => visibleItems.forEach((item) => onSendArchiveItemToTranslation?.(item))}
+          disabled={!visibleItems.length || !hasResults}
+        >
+          Send Visible to Translation
+        </button>
       </div>
       <div className={archiveView === "Stack" ? "gallery-grid archive-stack" : "gallery-grid archive-board"}>
         {visibleItems.map((item) => (

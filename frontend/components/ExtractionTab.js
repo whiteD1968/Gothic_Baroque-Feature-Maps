@@ -52,6 +52,8 @@ export default function ExtractionTab(props) {
   const [featuredMapKey, setFeaturedMapKey] = useState("composite_map");
   const [resultViewMode, setResultViewMode] = useState("Grid");
   const [mapStyleMode, setMapStyleMode] = useState("default");
+  const [profileName, setProfileName] = useState("My Extraction Profile");
+  const [savedProfiles, setSavedProfiles] = useState([]);
   const canvasRef = useRef(null);
   const selectedResult = useMemo(() => results[selectedResultIndex] || results[0] || null, [results, selectedResultIndex]);
 
@@ -63,6 +65,53 @@ export default function ExtractionTab(props) {
     "symmetry_asymmetry_map",
   ];
   const viewModes = ["Grid", "Gallery", "Atlas", "Board", "Detail"];
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("extraction_profiles_v1");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setSavedProfiles(parsed);
+    } catch (_error) {}
+  }, []);
+
+  const saveProfile = () => {
+    const next = {
+      name: profileName || `Profile ${Date.now()}`,
+      edgeLow,
+      edgeHigh,
+      densityKernel,
+      paletteColors,
+      blendA,
+      blendB,
+      blendC,
+      blendWeightA,
+      blendWeightB,
+      blendWeightC,
+      mutationCount,
+      mutationJitter,
+    };
+    const merged = [next, ...savedProfiles.filter((p) => p.name !== next.name)].slice(0, 12);
+    setSavedProfiles(merged);
+    window.localStorage.setItem("extraction_profiles_v1", JSON.stringify(merged));
+  };
+
+  const loadProfile = (name) => {
+    const p = savedProfiles.find((item) => item.name === name);
+    if (!p) return;
+    setEdgeLow(p.edgeLow);
+    setEdgeHigh(p.edgeHigh);
+    setDensityKernel(p.densityKernel);
+    setPaletteColors(p.paletteColors);
+    setBlendA(p.blendA);
+    setBlendB(p.blendB);
+    setBlendC(p.blendC);
+    setBlendWeightA(p.blendWeightA);
+    setBlendWeightB(p.blendWeightB);
+    setBlendWeightC(p.blendWeightC);
+    setMutationCount(p.mutationCount);
+    setMutationJitter(p.mutationJitter);
+  };
 
   const styleOptionsByMap = {
     edge_map: ["default", "thicker line", "inverse mode", "fine-line mode", "monochrome ink mode", "overprint mode"],
@@ -309,6 +358,14 @@ export default function ExtractionTab(props) {
         <h3>Analytical Map Outputs</h3>
         <div className="pill-row">
           {extractionOutputs.map((label) => <span key={label} className="pill">{label}</span>)}
+        </div>
+        <div className="card-actions">
+          <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Profile name" />
+          <button type="button" onClick={saveProfile}>Save Profile</button>
+          <select defaultValue="" onChange={(e) => e.target.value && loadProfile(e.target.value)}>
+            <option value="" disabled>Load saved profile</option>
+            {savedProfiles.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+          </select>
         </div>
       </section>
       <div className="preset-grid">

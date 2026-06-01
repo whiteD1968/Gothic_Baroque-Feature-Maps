@@ -7,6 +7,21 @@ import { applyAbstraction } from "../lib/hybridAbstractionUtils";
 const W = 880;
 const H = 600;
 const HANDLE_RADIUS = 8;
+const DIRECT_PAINT_TOOLS = new Set([
+  "clone stamp",
+  "healing patch",
+  "liquify warp",
+  "displacement warp",
+  "smudge direction",
+  "dodge",
+  "burn",
+  "selective blur",
+  "selective sharpen",
+  "noise grain",
+  "channel mixer",
+  "threshold posterize",
+  "mosaic morph",
+]);
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -110,6 +125,116 @@ function hexToRgb(hex) {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }
 
+function clamp255(v) {
+  return Math.max(0, Math.min(255, v));
+}
+
+function applyDirectToolStroke(imageData, tool, point, radius, options = {}) {
+  const out = cloneImageData(imageData);
+  const { width, height, data } = out;
+  const srcData = imageData.data;
+  const px = Math.round(point.x);
+  const py = Math.round(point.y);
+  const r = Math.max(2, Math.round(radius));
+  const strength = Math.max(0, Math.min(1, options.strength ?? 0.55));
+  const prev = options.prevPoint || point;
+  const dx = Math.round(point.x - prev.x);
+  const dy = Math.round(point.y - prev.y);
+
+  for (let y = Math.max(1, py - r); y < Math.min(height - 1, py + r); y += 1) {
+    for (let x = Math.max(1, px - r); x < Math.min(width - 1, px + r); x += 1) {
+      const dist2 = (x - px) * (x - px) + (y - py) * (y - py);
+      if (dist2 > r * r) continue;
+      const idx = (y * width + x) * 4;
+      const falloff = 1 - Math.sqrt(dist2) / r;
+
+      if (tool === "dodge") {
+        data[idx] = clamp255(data[idx] + 95 * strength * falloff);
+        data[idx + 1] = clamp255(data[idx + 1] + 95 * strength * falloff);
+        data[idx + 2] = clamp255(data[idx + 2] + 95 * strength * falloff);
+      } else if (tool === "burn") {
+        data[idx] = clamp255(data[idx] - 95 * strength * falloff);
+        data[idx + 1] = clamp255(data[idx + 1] - 95 * strength * falloff);
+        data[idx + 2] = clamp255(data[idx + 2] - 95 * strength * falloff);
+      } else if (tool === "noise grain") {
+        const n = (Math.random() - 0.5) * 140 * strength * falloff;
+        data[idx] = clamp255(data[idx] + n);
+        data[idx + 1] = clamp255(data[idx + 1] + n);
+        data[idx + 2] = clamp255(data[idx + 2] + n);
+      } else if (tool === "threshold posterize") {
+        const g = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+        const t = g > 128 ? 255 : 0;
+        data[idx] = data[idx + 1] = data[idx + 2] = Math.round(data[idx] * (1 - falloff) + t * falloff);
+      } else if (tool === "mosaic morph") {
+        const cell = Math.max(2, Math.floor(10 - strength * 7));
+        const sx = Math.floor(x / cell) * cell;
+        const sy = Math.floor(y / cell) * cell;
+        const sidx = (sy * width + sx) * 4;
+        data[idx] = srcData[sidx];
+        data[idx + 1] = srcData[sidx + 1];
+        data[idx + 2] = srcData[sidx + 2];
+      } else if (tool === "channel mixer") {
+        const r0 = data[idx];
+        const g0 = data[idx + 1];
+        const b0 = data[idx + 2];
+        data[idx] = clamp255(r0 * 0.5 + g0 * 0.35 + b0 * 0.15);
+        data[idx + 1] = clamp255(g0 * 0.5 + b0 * 0.35 + r0 * 0.15);
+        data[idx + 2] = clamp255(b0 * 0.5 + r0 * 0.35 + g0 * 0.15);
+      } else if (tool === "selective blur" || tool === "healing patch") {
+        let rr = 0; let gg = 0; let bb = 0; let c = 0;
+        for (let oy = -1; oy <= 1; oy += 1) {
+          for (let ox = -1; ox <= 1; ox += 1) {
+            const n = ((y + oy) * width + (x + ox)) * 4;
+            rr += srcData[n]; gg += srcData[n + 1]; bb += srcData[n + 2]; c += 1;
+          }
+        }
+        const br = rr / c;
+        const bg = gg / c;
+        const bb2 = bb / c;
+        data[idx] = Math.round(data[idx] * (1 - strength * falloff) + br * (strength * falloff));
+        data[idx + 1] = Math.round(data[idx + 1] * (1 - strength * falloff) + bg * (strength * falloff));
+        data[idx + 2] = Math.round(data[idx + 2] * (1 - strength * falloff) + bb2 * (strength * falloff));
+      } else if (tool === "selective sharpen") {
+        const cR = srcData[idx]; const cG = srcData[idx + 1]; const cB = srcData[idx + 2];
+        const nR = (srcData[idx - 4] + srcData[idx + 4] + srcData[idx - width * 4] + srcData[idx + width * 4]) / 4;
+        const nG = (srcData[idx - 3] + srcData[idx + 5] + srcData[idx - width * 4 + 1] + srcData[idx + width * 4 + 1]) / 4;
+        const nB = (srcData[idx - 2] + srcData[idx + 6] + srcData[idx - width * 4 + 2] + srcData[idx + width * 4 + 2]) / 4;
+        data[idx] = clamp255(cR + (cR - nR) * strength * 1.4 * falloff);
+        data[idx + 1] = clamp255(cG + (cG - nG) * strength * 1.4 * falloff);
+        data[idx + 2] = clamp255(cB + (cB - nB) * strength * 1.4 * falloff);
+      } else if (tool === "liquify warp" || tool === "smudge direction" || tool === "displacement warp") {
+        const sx = Math.max(0, Math.min(width - 1, x - dx));
+        const sy = Math.max(0, Math.min(height - 1, y - dy));
+        const sidx = (sy * width + sx) * 4;
+        const mix = tool === "liquify warp" ? 0.92 : tool === "displacement warp" ? 0.8 : 0.65;
+        data[idx] = Math.round(data[idx] * (1 - mix * falloff) + srcData[sidx] * (mix * falloff));
+        data[idx + 1] = Math.round(data[idx + 1] * (1 - mix * falloff) + srcData[sidx + 1] * (mix * falloff));
+        data[idx + 2] = Math.round(data[idx + 2] * (1 - mix * falloff) + srcData[sidx + 2] * (mix * falloff));
+      }
+    }
+  }
+
+  if (tool === "clone stamp" && options.cloneSourcePoint) {
+    const sample = options.cloneSourcePoint;
+    for (let y = Math.max(1, py - r); y < Math.min(height - 1, py + r); y += 1) {
+      for (let x = Math.max(1, px - r); x < Math.min(width - 1, px + r); x += 1) {
+        const dist2 = (x - px) * (x - px) + (y - py) * (y - py);
+        if (dist2 > r * r) continue;
+        const falloff = 1 - Math.sqrt(dist2) / r;
+        const sx = Math.max(0, Math.min(width - 1, Math.round(sample.x + (x - px))));
+        const sy = Math.max(0, Math.min(height - 1, Math.round(sample.y + (y - py))));
+        const idx = (y * width + x) * 4;
+        const sidx = (sy * width + sx) * 4;
+        data[idx] = Math.round(data[idx] * (1 - falloff) + srcData[sidx] * falloff);
+        data[idx + 1] = Math.round(data[idx + 1] * (1 - falloff) + srcData[sidx + 1] * falloff);
+        data[idx + 2] = Math.round(data[idx + 2] * (1 - falloff) + srcData[sidx + 2] * falloff);
+      }
+    }
+  }
+
+  return out;
+}
+
 export default function BlendCanvas({
   sourceA,
   sourceB,
@@ -156,6 +281,8 @@ export default function BlendCanvas({
   const [dragNodeIdx, setDragNodeIdx] = useState(-1);
   const [hoverNodeIdx, setHoverNodeIdx] = useState(-1);
   const [cursorUi, setCursorUi] = useState({ x: 16, y: 16, visible: false });
+  const [cloneSourcePoint, setCloneSourcePoint] = useState(null);
+  const prevPointRef = useRef(null);
 
   const points = selectionTarget === "A" ? pointsA : pointsB;
   const setPoints = selectionTarget === "A" ? setPointsA : setPointsB;
@@ -273,6 +400,17 @@ export default function BlendCanvas({
         out.data[i] = Math.max(0, Math.min(255, ((out.data[i] - lum) * contrast + lum) * d));
         out.data[i + 1] = Math.max(0, Math.min(255, ((out.data[i + 1] - lum) * contrast + lum) * d));
         out.data[i + 2] = Math.max(0, Math.min(255, ((out.data[i + 2] - lum) * contrast + lum) * d));
+      }
+    }
+
+    if (safeFx.blendIf && safeFx.blendIf !== "all") {
+      for (let i = 0; i < out.data.length; i += 4) {
+        const g = (out.data[i] + out.data[i + 1] + out.data[i + 2]) / 3;
+        let keep = true;
+        if (safeFx.blendIf === "shadows") keep = g < 90;
+        if (safeFx.blendIf === "mids") keep = g >= 70 && g <= 180;
+        if (safeFx.blendIf === "highlights") keep = g > 165;
+        if (!keep) out.data[i + 3] = Math.round(out.data[i + 3] * 0.15);
       }
     }
 
@@ -471,9 +609,20 @@ export default function BlendCanvas({
     for (let i = 0; i < base.data.length; i += 4) {
       const w = m.data[i] / 255;
       if (w <= 0) continue;
-      base.data[i] = fillFrom.data[i];
-      base.data[i + 1] = fillFrom.data[i + 1];
-      base.data[i + 2] = fillFrom.data[i + 2];
+      if (selectionTool === "content-aware fill") {
+        const px = (i / 4) % W;
+        const py = Math.floor((i / 4) / W);
+        const sx = Math.max(0, Math.min(W - 1, px + 8));
+        const sy = Math.max(0, Math.min(H - 1, py + 8));
+        const sidx = (sy * W + sx) * 4;
+        base.data[i] = Math.round(base.data[i] * 0.35 + base.data[sidx] * 0.65);
+        base.data[i + 1] = Math.round(base.data[i + 1] * 0.35 + base.data[sidx + 1] * 0.65);
+        base.data[i + 2] = Math.round(base.data[i + 2] * 0.35 + base.data[sidx + 2] * 0.65);
+      } else {
+        base.data[i] = fillFrom.data[i];
+        base.data[i + 1] = fillFrom.data[i + 1];
+        base.data[i + 2] = fillFrom.data[i + 2];
+      }
       base.data[i + 3] = 255;
     }
     workingBaseRef.current = base;
@@ -562,6 +711,26 @@ export default function BlendCanvas({
   const onDown = (event) => {
     if (!activeMaskRef.current) return;
     const p = toPoint(event);
+    const isDirect = DIRECT_PAINT_TOOLS.has(selectionTool);
+    if (selectionTool === "clone stamp" && event.shiftKey) {
+      setCloneSourcePoint(p);
+      return;
+    }
+    if (isDirect && workingBaseRef.current) {
+      pushHistory();
+      const next = applyDirectToolStroke(
+        workingBaseRef.current,
+        selectionTool,
+        p,
+        brushSize / 2,
+        { strength: eraseTransparency / 100, cloneSourcePoint, prevPoint: p },
+      );
+      workingBaseRef.current = next;
+      prevPointRef.current = p;
+      setIsDown(true);
+      rebuild();
+      return;
+    }
     const nodeIdx = hitNode(p);
     if (selectionTool === "polygon" && nodeIdx !== -1) { setDragNodeIdx(nodeIdx); setIsDown(true); return; }
 
@@ -593,6 +762,20 @@ export default function BlendCanvas({
     });
     setHoverNodeIdx(hitNode(p));
     if (!isDown) return;
+    const isDirect = DIRECT_PAINT_TOOLS.has(selectionTool);
+    if (isDirect && workingBaseRef.current) {
+      const next = applyDirectToolStroke(
+        workingBaseRef.current,
+        selectionTool,
+        p,
+        brushSize / 2,
+        { strength: eraseTransparency / 100, cloneSourcePoint, prevPoint: prevPointRef.current || p },
+      );
+      workingBaseRef.current = next;
+      prevPointRef.current = p;
+      rebuild();
+      return;
+    }
 
     if (selectionTool === "polygon" && dragNodeIdx !== -1) {
       setPoints((prev) => prev.map((pt, idx) => (idx === dragNodeIdx ? p : pt)));
@@ -615,6 +798,7 @@ export default function BlendCanvas({
     if (!activeMaskRef.current) return;
     const p = toPoint(event);
     setIsDown(false);
+    prevPointRef.current = null;
     setDragNodeIdx(-1);
     if (selectionTool === "rectangular" && start) rectMask(activeMaskRef.current, start, p);
     if (selectionTool === "lasso") setPoints([]);

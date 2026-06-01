@@ -105,6 +105,7 @@ function drawWarpedStrip(ctx, img, quad, strips = 48) {
 
 export default function ProjectionLab({ apiBase, results, crossResult, exportFormat, onRegisterOutput }) {
   const canvasRef = useRef(null);
+  const [projectionMode, setProjectionMode] = useState("Simple");
   const [geometry, setGeometry] = useState(GEOMETRIES[0]);
   const [resultIndex, setResultIndex] = useState(0);
   const [mapKey, setMapKey] = useState("composite_map");
@@ -235,6 +236,10 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
   const mapOptions = MAP_KEYS.filter((key) => key !== "original");
   if (crossResult?.maps?.cross_blend_map) mapOptions.push("cross_blend_map");
   if (crossResult?.maps?.cross_tiled_pattern_map) mapOptions.push("cross_tiled_pattern_map");
+  const simpleGeometry = ["flat tile", "vault patch", "stereotomic block", "column fragment"];
+  const geometryOptions = projectionMode === "Advanced" ? GEOMETRIES : simpleGeometry;
+  const advancedMapKeys = ["cross_tiled_pattern_map", "deformation_map", "symmetry_asymmetry_map"];
+  const filteredMapOptions = projectionMode === "Advanced" ? mapOptions : mapOptions.filter((k) => !advancedMapKeys.includes(k));
 
   return (
     <section className="glass-panel projection-lab">
@@ -259,9 +264,10 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
             <details className="inspector-drawer" open>
               <summary>Source</summary>
               <div className="translation-grid compact">
-                <label>Geometry</label><select value={geometry} onChange={(e) => setGeometry(e.target.value)}>{GEOMETRIES.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+                <label>Mode</label><select value={projectionMode} onChange={(e) => setProjectionMode(e.target.value)}><option>Simple</option><option>Advanced</option></select>
+                <label>Geometry</label><select value={geometry} onChange={(e) => setGeometry(e.target.value)}>{geometryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
                 <label>Source Result</label><select value={resultIndex} onChange={(e) => setResultIndex(Number(e.target.value))}>{results.map((r, i) => <option key={`${r.original_name}-${i}`} value={i}>{r.original_name}</option>)}</select>
-                <label>Abstract Output</label><select value={mapKey} onChange={(e) => setMapKey(e.target.value)}>{mapOptions.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
+                <label>Abstract Output</label><select value={mapKey} onChange={(e) => setMapKey(e.target.value)}>{filteredMapOptions.map((key) => <option key={key} value={key}>{mapLabel(key)}</option>)}</select>
               </div>
             </details>
             <details className="inspector-drawer" open>
@@ -270,7 +276,7 @@ export default function ProjectionLab({ apiBase, results, crossResult, exportFor
                 <label>Style Preset</label><select value={graphicStyle} onChange={(e) => setGraphicStyle(e.target.value)}>{GRAPHIC_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}</select>
               </div>
             </details>
-            <details className="inspector-drawer" open>
+            <details className="inspector-drawer" open={projectionMode === "Advanced"}>
               <summary>Advanced Controls</summary>
               <div className="translation-grid compact">
                 <label>UV Scale</label><input type="range" min="0.2" max="3" step="0.1" value={uvScale} onChange={(e) => setUvScale(Number(e.target.value))} />

@@ -7,6 +7,7 @@ import HybridPreview from "./HybridPreview";
 import MutationGrid from "./MutationGrid";
 import GrasshopperExportPanel from "./GrasshopperExportPanel";
 import BlendLineageGraph from "./BlendLineageGraph";
+import { useState } from "react";
 
 function SourceRegionPicker({ source, crop, setCrop, label }) {
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -61,6 +62,7 @@ function SourceRegionPicker({ source, crop, setCrop, label }) {
 }
 
 export default function BlendLabTab(props) {
+  const [toolMode, setToolMode] = useState("Simple");
   const {
     sourceA,
     sourceB,
@@ -144,6 +146,13 @@ export default function BlendLabTab(props) {
       <section className="glass-panel mode-panel">
         <h3>Blend Lab</h3>
         <p className="muted">Region-based feature crossbreeding for MidJourney and Grasshopper-ready outputs.</p>
+        <div className="card-actions">
+          <label>Control Mode</label>
+          <select value={toolMode} onChange={(e) => setToolMode(e.target.value)}>
+            <option>Simple</option>
+            <option>Advanced</option>
+          </select>
+        </div>
       </section>
 
       <section className="glass-panel blend-lab-workspace">
@@ -180,6 +189,7 @@ export default function BlendLabTab(props) {
               onResetTools={onResetTools}
               transform={transform}
               setTransform={setTransform}
+              isAdvanced={toolMode === "Advanced"}
             />
             <BlendModeControls
               blendMode={blendMode}
@@ -192,6 +202,7 @@ export default function BlendLabTab(props) {
               setRegionFx={setRegionFx}
               abstractionMode={abstractionMode}
               setAbstractionMode={setAbstractionMode}
+              isAdvanced={toolMode === "Advanced"}
             />
           </section>
           <BlendCanvas
@@ -235,11 +246,22 @@ export default function BlendLabTab(props) {
       </section>
 
       <section className="glass-panel blend-lab-inspector">
-        <div className="blend-inspector-grid">
-          <FeatureBlendPanel roleAssignment={roleAssignment} setRoleAssignment={setRoleAssignment} featureWeights={featureWeights} setFeatureWeights={setFeatureWeights} />
-          <MutationGrid mutationCount={mutationCount} setMutationCount={setMutationCount} mutations={mutations} onGenerateMutations={onGenerateMutations} />
-          <GrasshopperExportPanel onExport={onExport} contourSimplify={contourSimplify} setContourSimplify={setContourSimplify} />
-        </div>
+        {toolMode === "Advanced" ? (
+          <div className="blend-inspector-grid">
+            <FeatureBlendPanel roleAssignment={roleAssignment} setRoleAssignment={setRoleAssignment} featureWeights={featureWeights} setFeatureWeights={setFeatureWeights} />
+            <MutationGrid mutationCount={mutationCount} setMutationCount={setMutationCount} mutations={mutations} onGenerateMutations={onGenerateMutations} />
+            <GrasshopperExportPanel onExport={onExport} contourSimplify={contourSimplify} setContourSimplify={setContourSimplify} />
+          </div>
+        ) : (
+          <details className="inspector-drawer">
+            <summary>Advanced Tools</summary>
+            <div className="blend-inspector-grid">
+              <FeatureBlendPanel roleAssignment={roleAssignment} setRoleAssignment={setRoleAssignment} featureWeights={featureWeights} setFeatureWeights={setFeatureWeights} />
+              <MutationGrid mutationCount={mutationCount} setMutationCount={setMutationCount} mutations={mutations} onGenerateMutations={onGenerateMutations} />
+              <GrasshopperExportPanel onExport={onExport} contourSimplify={contourSimplify} setContourSimplify={setContourSimplify} />
+            </div>
+          </details>
+        )}
       </section>
 
       <section className="glass-panel">

@@ -1,7 +1,9 @@
 import ComposerBoard from "./ui/ComposerBoard";
 import TranslationLab from "./ui/TranslationLab";
+import { useState } from "react";
 
 export default function TranslationTab(props) {
+  const [batchRuns, setBatchRuns] = useState(1);
   const {
     translationOutputs,
     apiBase,
@@ -73,6 +75,25 @@ export default function TranslationTab(props) {
         onCrossReference={runCrossBlend}
         crossLoading={crossLoading}
       />
+      <section className="glass-panel mode-panel">
+        <h3>Batch Translation Runs</h3>
+        <div className="card-actions">
+          <label>Runs</label>
+          <input type="range" min="1" max="5" value={batchRuns} onChange={(e) => setBatchRuns(Number(e.target.value))} />
+          <span className="pill">{batchRuns}</span>
+          <button
+            type="button"
+            onClick={async () => {
+              for (let i = 0; i < batchRuns; i += 1) {
+                // eslint-disable-next-line no-await-in-loop
+                await runExtraction(true);
+              }
+            }}
+          >
+            Run Batch
+          </button>
+        </div>
+      </section>
       <div className="panel-head">
         <h3>Projection surfaces become available after cross-reference generation.</h3>
         <button type="button" onClick={() => setActiveTab("Projection")} disabled={!crossResult}>Open Projection</button>

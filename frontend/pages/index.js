@@ -117,6 +117,7 @@ export default function Home() {
     sourceBInfluence: 0.55,
     useSourceBPatch: true,
     enableAbstractionPreview: true,
+    blendIf: "all",
     colorMode: "preserve",
     colorShift: 0.25,
     gradientLower: 0.1,
@@ -266,6 +267,7 @@ export default function Home() {
       sourceBInfluence: 0.55,
       useSourceBPatch: true,
       enableAbstractionPreview: true,
+      blendIf: "all",
       colorMode: "preserve",
       colorShift: 0.25,
       gradientLower: 0.1,
@@ -607,6 +609,7 @@ export default function Home() {
               exportFormat={exportFormat}
               registerGeneratedOutput={registerGeneratedOutput}
               slotNodes={slotNodes}
+              generatedOutputs={generatedOutputs}
             />
           )}
 

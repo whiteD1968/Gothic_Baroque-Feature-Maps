@@ -9,7 +9,9 @@ export default function ProjectionTab({
   exportFormat,
   registerGeneratedOutput,
   slotNodes,
+  generatedOutputs = [],
 }) {
+  const projectionOutputs = generatedOutputs.filter((item) => item.kind === "projection").slice(0, 12);
   return (
     <section className="tab-panel">
       <section className="glass-panel mode-panel">
@@ -33,7 +35,20 @@ export default function ProjectionTab({
         )}
       </section>
       <LineageGraph slots={slotNodes} crossResult={crossResult} />
+      <section className="preview-panel glass-panel">
+        <h3>Projection Snapshots</h3>
+        {projectionOutputs.length ? (
+          <div className="mutation-grid">
+            {projectionOutputs.map((item) => (
+              <a key={item.id} href={item.previewUrl} download={`${item.title}.${exportFormat}`}>
+                <img src={item.previewUrl} alt={item.title} />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">Render projection outputs to populate snapshot history.</p>
+        )}
+      </section>
     </section>
   );
 }
-

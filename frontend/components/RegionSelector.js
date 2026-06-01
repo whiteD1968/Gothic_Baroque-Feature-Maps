@@ -21,8 +21,30 @@
   onResetTools,
   transform,
   setTransform,
+  isAdvanced = false,
 }) {
-  const tools = ["rectangular", "lasso", "polygon", "brush mask", "erase mask"];
+  const tools = isAdvanced
+    ? [
+      "rectangular",
+      "polygon",
+      "brush mask",
+      "erase mask",
+      "clone stamp",
+      "healing patch",
+      "content-aware fill",
+      "liquify warp",
+      "displacement warp",
+      "smudge direction",
+      "dodge",
+      "burn",
+      "selective blur",
+      "selective sharpen",
+      "noise grain",
+      "channel mixer",
+      "threshold posterize",
+      "mosaic morph",
+    ]
+    : ["rectangular", "brush mask", "erase mask"];
   return (
     <article className="inspector-card">
       <h4>Region Selection</h4>
@@ -43,6 +65,11 @@
           <button key={tool} type="button" className={selectionTool === tool ? "pill active" : "pill"} onClick={() => setSelectionTool(tool)}>{tool}</button>
         ))}
       </div>
+      {isAdvanced && selectionTool === "clone stamp" ? (
+        <div className="field-row">
+          <small className="muted">Clone stamp: Shift+Click to set sample point, then paint to clone.</small>
+        </div>
+      ) : null}
       <div className="field-row">
         <label>Feather {feather.toFixed(2)}</label>
         <input type="range" min="0" max="1" step="0.05" value={feather} onChange={(e) => setFeather(Number(e.target.value))} />
@@ -64,12 +91,14 @@
           />
         </div>
       ) : null}
-      <div className="field-row">
-        <label>Move X (active region)</label><input type="range" min="-300" max="300" value={transform.x} onChange={(e) => setTransform((p) => ({ ...p, x: Number(e.target.value) }))} />
-        <label>Move Y (active region)</label><input type="range" min="-300" max="300" value={transform.y} onChange={(e) => setTransform((p) => ({ ...p, y: Number(e.target.value) }))} />
-        <label>Rotate (active region)</label><input type="range" min="-180" max="180" value={transform.rotation} onChange={(e) => setTransform((p) => ({ ...p, rotation: Number(e.target.value) }))} />
-        <label>Scale (active region)</label><input type="range" min="0.2" max="2" step="0.05" value={transform.scale} onChange={(e) => setTransform((p) => ({ ...p, scale: Number(e.target.value) }))} />
-      </div>
+      {isAdvanced ? (
+        <div className="field-row">
+          <label>Move X (active region)</label><input type="range" min="-300" max="300" value={transform.x} onChange={(e) => setTransform((p) => ({ ...p, x: Number(e.target.value) }))} />
+          <label>Move Y (active region)</label><input type="range" min="-300" max="300" value={transform.y} onChange={(e) => setTransform((p) => ({ ...p, y: Number(e.target.value) }))} />
+          <label>Rotate (active region)</label><input type="range" min="-180" max="180" value={transform.rotation} onChange={(e) => setTransform((p) => ({ ...p, rotation: Number(e.target.value) }))} />
+          <label>Scale (active region)</label><input type="range" min="0.2" max="2" step="0.05" value={transform.scale} onChange={(e) => setTransform((p) => ({ ...p, scale: Number(e.target.value) }))} />
+        </div>
+      ) : null}
       <div className="card-actions">
         <button type="button" onClick={onUndoEdit}>Undo Edit (Ctrl+Z)</button>
         <button type="button" onClick={onRedoEdit}>Redo (Ctrl+Shift+Z)</button>
@@ -79,10 +108,10 @@
         <button type="button" onClick={onDeleteRegion}>
           {selectionTarget === "A" ? "Delete A -> Fill from B" : "Delete B -> Fill from A"}
         </button>
-        <button type="button" onClick={onUndoPolygonNode}>Undo Node</button>
-        <button type="button" onClick={onClosePolygon}>Close Polygon</button>
-        <button type="button" onClick={onInvertSelection}>Invert Selection</button>
-        <button type="button" onClick={onClearSelection}>Clear Selection</button>
+        {isAdvanced ? <button type="button" onClick={onUndoPolygonNode}>Undo Node</button> : null}
+        {isAdvanced ? <button type="button" onClick={onClosePolygon}>Close Polygon</button> : null}
+        {isAdvanced ? <button type="button" onClick={onInvertSelection}>Invert Selection</button> : null}
+        {isAdvanced ? <button type="button" onClick={onClearSelection}>Clear Selection</button> : null}
       </div>
     </article>
   );
