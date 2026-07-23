@@ -6,6 +6,7 @@ import ArchiveTab from "../components/ArchiveTab";
 import ExtractionTab from "../components/ExtractionTab";
 import TranslationTab from "../components/TranslationTab";
 import BlendLabTab from "../components/BlendLabTab";
+import PatternProjectionLab from "../components/PatternProjectionLab";
 import ProjectionTab from "../components/ProjectionTab";
 import ExportTab from "../components/ExportTab";
 import LineageGraph from "../components/LineageGraph";
@@ -69,6 +70,7 @@ export default function Home() {
     online: false,
     label: "Checking connection...",
   });
+  const [manualBackendOnline, setManualBackendOnline] = useState(false);
   const [sourceA, setSourceA] = useState(null);
   const [sourceB, setSourceB] = useState(null);
   const [sourceCropA, setSourceCropA] = useState({ x: 0, y: 0, w: 1, h: 1 });
@@ -445,6 +447,13 @@ export default function Home() {
   }, [results]);
 
   const checkBackendHealth = async () => {
+    if (manualBackendOnline) {
+      setBackendStatus({
+        online: true,
+        label: `Manual online mode: ${apiBase}`,
+      });
+      return;
+    }
     for (const candidate of API_CANDIDATES) {
       try {
         const controller = new AbortController();
@@ -468,13 +477,31 @@ export default function Home() {
     });
   };
 
+  const toggleManualBackendOnline = () => {
+    setManualBackendOnline((enabled) => {
+      const nextEnabled = !enabled;
+      if (nextEnabled) {
+        setBackendStatus({
+          online: true,
+          label: `Manual online mode: ${apiBase}`,
+        });
+      } else {
+        setBackendStatus({
+          online: false,
+          label: "Checking connection...",
+        });
+      }
+      return nextEnabled;
+    });
+  };
+
   useEffect(() => {
     checkBackendHealth();
     const interval = setInterval(checkBackendHealth, 10000);
     return () => {
       clearInterval(interval);
     };
-  }, []);
+  }, [manualBackendOnline]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -509,6 +536,8 @@ export default function Home() {
           stats={datasetStats}
           backendStatus={backendStatus}
           onRetryBackend={checkBackendHealth}
+          manualBackendOnline={manualBackendOnline}
+          onToggleManualBackendOnline={toggleManualBackendOnline}
         />
 
         <TabWorkspace activeTab={activeTab}>
@@ -683,6 +712,15 @@ export default function Home() {
               undoTick={blendUndoTick}
               redoTick={blendRedoTick}
               resetTick={blendResetTick}
+            />
+          )}
+
+          {activeTab === "Pattern Projection Lab" && (
+            <PatternProjectionLab
+              apiBase={apiBase}
+              results={results}
+              generatedOutputs={generatedOutputs}
+              registerGeneratedOutput={registerGeneratedOutput}
             />
           )}
 

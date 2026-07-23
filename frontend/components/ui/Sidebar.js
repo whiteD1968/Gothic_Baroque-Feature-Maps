@@ -1,5 +1,13 @@
-export default function Sidebar({ activeTab, setActiveTab, stats, backendStatus, onRetryBackend }) {
-  const tabs = ["Archive", "Extraction", "Translation", "Blend Lab", "Projection", "Export"];
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  stats,
+  backendStatus,
+  onRetryBackend,
+  manualBackendOnline,
+  onToggleManualBackendOnline,
+}) {
+  const tabs = ["Archive", "Extraction", "Translation", "Blend Lab", "Pattern Projection Lab", "Projection", "Export"];
 
   return (
     <aside className="sidebar glass-panel">
@@ -27,6 +35,17 @@ export default function Sidebar({ activeTab, setActiveTab, stats, backendStatus,
             {backendStatus.online ? "Online" : "Offline"}
           </span>
           <button type="button" className="retry-btn" onClick={onRetryBackend}>Retry now</button>
+        </div>
+        <label className="backend-toggle">
+          <input
+            type="checkbox"
+            checked={manualBackendOnline}
+            onChange={onToggleManualBackendOnline}
+          />
+          <span>Force online</span>
+        </label>
+        <div className="backend-toggle-note">
+          {manualBackendOnline ? "Standalone override is enabled." : "Auto-checks local FastAPI."}
         </div>
         <p>{backendStatus.label}</p>
       </div>
